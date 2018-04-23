@@ -117,6 +117,14 @@ class SaveConfiguration(private val force: Boolean) : TorControlMessage() {
     override fun encode() = if (force) joinArgs("SAVECONF", listOf("FORCE")) else noArgs("SAVECONF")
 }
 
+class SetEvents(private val events: List<Events>) : TorControlMessage() {
+    override fun encode() = joinArgs("SETEVENTS", events.map { it.name })
+
+    enum class Events {
+        CIRC, STREAM, ORCONN, BW, DEBUG, INFO, NOTICE, WARN, ERR, NEWDESC, ADDRMAP, AUTHDIR_NEWDESCS
+    }
+}
+
 class Signal(private val type: SignalType) : TorControlMessage() {
 
     enum class SignalType {
