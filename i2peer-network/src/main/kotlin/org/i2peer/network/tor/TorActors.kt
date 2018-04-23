@@ -17,7 +17,7 @@ data class EventMessage(val text: String)
 data class EventError(val message: String, val e: Throwable? = null)
 data class StartProcessMessage(val message: String)
 data class StartOk(val message: String, val torProcess: Process)
-
+data class Bootstrap(val percentage: Double)
 suspend fun startTor(torConfig: TorConfig, event: SendChannel<Any>) =
     torConfigWriter().send(TorStartData(torConfig, event))
 
@@ -108,8 +108,16 @@ fun torStarter() = actor<TorStartData>(CommonPool) {
             return@forEach
         }
         when {
-            it.contains("Bootstrapped 100") -> {
-                async { data.event.send(StartOk("OK", process)) }
+            it.contains("Bootstrapped ") -> {
+                async {
+                    val result = boostrapRegex.find(it)
+                    val progress = result!!.groups[1]!!.value.toDouble()
+                    if(progress == 100.toDouble())
+                        data.event.send(StartOk("OK", process))
+                    else
+                        data.event.send(Bootstrap(progress))
+
+                }
                 return@forEach
             }
             it.contains("[err]") -> {
@@ -119,6 +127,7 @@ fun torStarter() = actor<TorStartData>(CommonPool) {
                 }
                 return@forEach
             }
+
         }
         async {
             data.event.send(StartProcessMessage(it))

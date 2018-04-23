@@ -1,7 +1,10 @@
 package org.i2peer.network.tor
 
 import arrow.core.Either
+import arrow.core.Try
+import arrow.core.getOrElse
 import kotlinx.coroutines.experimental.CommonPool
+import kotlinx.coroutines.experimental.async
 import kotlinx.coroutines.experimental.channels.actor
 import kotlinx.coroutines.experimental.launch
 import okio.BufferedSink
@@ -10,7 +13,6 @@ import org.i2peer.network.ActorRegistry
 import org.i2peer.network.NetworkResponse
 import org.i2peer.network.TorControlEvent
 import org.i2peer.network.TorControlTransaction
-import java.io.IOException
 import java.util.*
 
 class TorControlChannel(private val source: BufferedSource, private val sink: BufferedSink) {
@@ -68,22 +70,20 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
         initialDelay = 0, period = 300
     ) {
         while (!source.exhausted()) {
-            val result = read(source)
-            when (result) {
-                is Either.Right -> launch {
-                    torControlReader.send(Either.right(result.b))
-                }
-                is Either.Left -> {
-                    println(result.a)
-                }//???
-            }
+            val result = read(source).fold({
+
+            },
+                {
+                    async {
+                        torControlReader.send(Either.right(it))
+                    }
+                })
         }
     }
 
     private val torControlWriter = actor<TorControlMessage>(CommonPool) {
         for (message in channel) {
             torControlReader.send(Either.left(message))
-            println("Write Message: " + String(message.encode()))
             try {
                 sink.write(message.encode())
                 sink.flush();
@@ -109,7 +109,6 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
         private val torControlReader = actor<Either<TorControlMessage, NetworkResponse>>(CommonPool) {
             val messages = LinkedList<TorControlMessage>()
             for (message in channel) {
-                println("Reader message: ")
                 when (message) {
                     is Either.Left -> messages.add(message.a)
                     is Either.Right -> when (message.b.code) {
@@ -122,37 +121,32 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
 
         private val callbackActor = actor<Any>(CommonPool) {
             for (message in channel) {
-
                 when (message) {
                     is TorControlEvent -> {
-                        println(message.response)
                         ActorRegistry.get(ActorRegistry.TOR_CONTROL_EVENT).forEach {
-                            it.channel.send(TorControlEvent(message.response))
+                            it.send(TorControlEvent(message.response))
                         }
                     }
                     is TorControlTransaction -> {
-                        println(String(message.request.encode()))
-                        println(message.response)
-
                         ActorRegistry.get(ActorRegistry.TOR_CONTROL_TRANSACTION).forEach {
-                            it.channel.send(TorControlTransaction(message.request, message.response))
+                            it.send(TorControlTransaction(message.request, message.response))
                         }
                     }
                     else -> {
-                        println("callback else")
+
                     }
                 }
             }
         }
 
-        private fun readReply(input: BufferedSource): Either<IOException, LinkedList<ReplyLine>> {
-            val reply = LinkedList<ReplyLine>()
-            var c: Char
-            do {
-                try {
+        private fun readReply(input: BufferedSource): Try<LinkedList<ReplyLine>> {
+            return Try {
+                val reply = LinkedList<ReplyLine>()
+                var c: Char
+                do {
                     var line = input.readUtf8Line()
                     println(line)
-                    if (line == null && reply.isEmpty()) return Either.right(reply)
+                    if (line == null && reply.isEmpty()) break
 
                     val status = line!!.substring(0, 3)
                     val msg = line.substring(4)
@@ -172,23 +166,17 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
                         rest = data.toString()
                     }
                     reply.add(ReplyLine(status.toInt(), msg, rest))
-                } catch (e: IOException) {
-                    return Either.left(e)
-                }
-            } while (c != ' ')
-
-            return Either.right(reply)
+                } while (c != ' ')
+                reply
+            }
         }
 
-        private fun read(source: BufferedSource): Either<IOException, NetworkResponse> {
-            val lines = readReply(source)
-            return when (lines) {
-                is Either.Right -> {
-                    val last = lines.b.peekLast()
-                    if ("OK" === last.msg) lines.b.removeLast()
-                    Either.right(NetworkResponse(last.status, last.msg, toMap(lines.b)))
-                }
-                is Either.Left -> Either.left(lines.a)
+        private fun read(source: BufferedSource): Try<NetworkResponse> {
+            return Try {
+                val lines = readReply(source).getOrElse { null }
+                val last = lines!!.peekLast()
+                if ("OK" === last.msg) lines.removeLast()
+                NetworkResponse(last.status, last.msg, toMap(lines))
             }
         }
     }

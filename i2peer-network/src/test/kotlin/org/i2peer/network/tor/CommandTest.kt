@@ -60,4 +60,11 @@ class CommandTest {
         )
         println(result)
     }
+
+    @Test
+    fun regex() {
+        val result =
+            boostrapRegex.find("StartProcessMessage(message=Apr 22 14:30:07.000 [notice] Bootstrapped 80%: Connecting to the Tor network)")
+        assertEquals("80", result!!.groups[1]!!.value)
+    }
 }

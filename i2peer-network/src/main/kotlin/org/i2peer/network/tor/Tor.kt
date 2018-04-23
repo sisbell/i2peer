@@ -111,3 +111,5 @@ fun getPathToTorArchive(osType: OsType? = osType(), parentPath: String? = "nativ
 fun runTorArgs(torExecutableFile: File, torrcFile: File): List<String> {
     return listOf(torExecutableFile.absolutePath, "-f", torrcFile.absolutePath)
 }
+
+val boostrapRegex = "Bootstrapped (.*)%".toRegex()
