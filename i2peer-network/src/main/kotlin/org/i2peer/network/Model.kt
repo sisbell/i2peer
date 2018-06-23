@@ -1,6 +1,8 @@
 package org.i2peer.network
 
 import arrow.core.Try
+import kotlinx.coroutines.experimental.channels.Channel
+import kotlinx.coroutines.experimental.channels.SendChannel
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.ByteString
@@ -97,4 +99,18 @@ abstract class NetworkMessage(
 ) {
     abstract fun encode(): ByteArray
 }
+
+data class Process(val id: String, val port: String)
+
+data class Message(val body: ByteArray)
+
+abstract class EventTask {
+    abstract var name: String
+}
+
+data class ChannelTask(override var name: String, val channel: Channel<EventTask>) : EventTask()
+
+data class CommunicationTask(override var name: String, val communications: Communications) : EventTask()
+
+data class Communications(val process: Process, val message: Message, val type: Int)
 
