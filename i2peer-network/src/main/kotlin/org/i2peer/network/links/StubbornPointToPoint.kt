@@ -12,7 +12,7 @@ import kotlin.concurrent.*
  */
 class StubbornPointToPoint(private val ffl: SendChannel<EventTask>) : Link() {
 
-    protected val sentCommunications: CopyOnWriteArraySet<CommunicationTask> = CopyOnWriteArraySet()
+    private val sentCommunications: CopyOnWriteArraySet<CommunicationTask> = CopyOnWriteArraySet()
 
     val fixedRateTimer = fixedRateTimer(name = "timeout",
             initialDelay = 100, period = 5000) {

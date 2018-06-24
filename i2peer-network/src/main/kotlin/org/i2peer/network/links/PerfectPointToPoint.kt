@@ -10,7 +10,7 @@ import java.util.concurrent.CopyOnWriteArraySet
  */
 class PerfectPointToPoint(private val stubbornLink: SendChannel<EventTask>) : Link() {
 
-    protected val delivered: CopyOnWriteArraySet<CommunicationTask> = CopyOnWriteArraySet()
+    private val delivered: CopyOnWriteArraySet<CommunicationTask> = CopyOnWriteArraySet()
 
     /**
      * Delivers event once

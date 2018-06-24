@@ -33,7 +33,7 @@ fun fairLossPointToPoint() = actor<EventTask>(CommonPool) {
             is ChannelTask -> registerEvent(event, fll)
             is CommunicationTask -> {
                 when (event.name) {
-                    "Send" -> fll.sendAsync(event.communications.process, event.communications.message)
+                    "Send" -> fll.sendAsync(event)
                     "Deliver" -> fll.deliver(event)
                 }
             }
