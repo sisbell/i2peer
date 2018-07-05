@@ -1,0 +1,34 @@
+apply plugin: 'java'
+apply plugin: 'application'
+
+group = 'org.i2peer'
+version = '1.0-SNAPSHOT'
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+dependencies {
+    implementation project(path: ':i2peer-network')
+    compile group: 'no.tornado', name: 'tornadofx', version: '1.7.16'
+  //  compile "com.fasterxml.jackson.module:jackson-module-kotlin:2.9.+"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.1.0'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.1.0'
+}
+
+mainClassName = 'org.i2peer.MyApp'
+
+jar {
+    manifest {
+        attributes(
+                'Class-Path': configurations.compile.collect { it.getName() }.join(' '),
+                'Main-Class': 'org.i2peer.MyApp'
+        )
+    }
+    from(configurations.compile.collect { entry -> zipTree(entry) }) {
+        exclude 'META-INF/MANIFEST.MF'
+        exclude 'META-INF/*.SF'
+        exclude 'META-INF/*.DSA'
+        exclude 'META-INF/*.RSA'
+    }
+}

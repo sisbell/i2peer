@@ -2,95 +2,78 @@ package org.i2peer.network
 
 import arrow.core.Either
 import kotlinx.coroutines.experimental.CommonPool
+import kotlinx.coroutines.experimental.async
 import kotlinx.coroutines.experimental.channels.actor
 import okio.BufferedSink
 import okio.BufferedSource
-import okio.Okio
-import java.io.DataInputStream
-import java.io.DataOutputStream
-import java.io.IOException
-import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * A communication channel to a specific Process.
+ *
+ * A Process is an abstraction that can perform some computation. Processes pass messages between themselves through
+ * communication links.
+ *
+ * More information can be found in "Introduction of Reliable and Secure Distributed Programming 2nd edition (pg 20)
+ */
 class ProcessChannel(val source: BufferedSource, val sink: BufferedSink) {
 
-    suspend fun send(communications: Communications) = writer.send(communications)
+    /**
+     * Sends a communication message to the specified sink.
+     */
+    suspend fun sendCommunications(communications: Communications) = writer.send(communications)
 
+    /**
+     * Responsible for encoding communications and sending them to the sink
+     */
     private val writer = actor<Communications>(CommonPool) {
-        for (communications in channel) {
-            sink.write(communications.encode())
-            sink.flush()
-        }
+        for (communications in channel) sink.writeCommunications(communications).flush()
     }
+
+    /**
+     * Returns true if the channel is closed and can no longer be used
+     */
+    fun isOpen(): Boolean = source.isOpen && sink.isOpen
 
     companion object {
 
+        val LOG = loggerFor(javaClass)
+
+        /**
+         * Sends a communication message to the onion address specified in the Communications.targetProcess.port
+         */
         suspend fun send(communications: Communications) = peerActor.send(communications)
 
-        private val peerActor = actor<Communications>(CommonPool) {
+        private var peerActor = actor<Communications>(CommonPool) {
             val channelMap: MutableMap<String, ProcessChannel> = ConcurrentHashMap()
-            val torProxy: InetSocketAddress = InetSocketAddress.createUnresolved("127.0.0.1", 9100)
             for (communications in channel) {
-                val result = getChannelFor(channelMap = channelMap, torProxy = torProxy,
-                        receiverAddress = communications.process.port)
-                when (result) {
-                    is Either.Left -> {
-                    }
-                    is Either.Right -> {
-                        result.b.send(communications)
+                async {
+                    val result = getChannelFor(channelMap = channelMap, targetPort = communications.targetProcess.port)
+                    when (result) {
+                        is Either.Left -> result.a.printStackTrace()
+                        is Either.Right -> result.b.sendCommunications(communications)
                     }
                 }
             }
         }
 
         @Synchronized
-        private fun getChannelFor(receiverAddress: String, torProxy: InetSocketAddress, channelMap: MutableMap<String, ProcessChannel>)
+        private fun getChannelFor(targetPort: String, channelMap: MutableMap<String, ProcessChannel>)
                 : Either<Exception, ProcessChannel> {
-            var channel = channelMap[receiverAddress]
-            if (channel == null) {
+            var channel = channelMap[targetPort]
+            if (channel == null || !channel.isOpen()) {
                 try {
-                    val result = createProcessChannel(onionAddress = receiverAddress, torProxy = torProxy)
-                    when (result) {
-                        is Either.Left -> return Either.left(result.a)
-                        is Either.Right -> {
-                            channel = result.b
-                            //check if still open
-                            channelMap[receiverAddress] = channel
-                        }
-                    }
+                    LOG.info("Connecting to Tor Socks Port: " + org.i2peer.network.config.socksPort)
+                    channel = Socket().openProcessChannel("localhost", org.i2peer.network.config.socksPort, 5000,
+                            targetPort)
+                    channelMap[targetPort] = channel
                 } catch (e: Exception) {
+                    e.printStackTrace()
                     return Either.left(e)
                 }
             }
             return Either.right(channel)
-        }
-
-        private fun createProcessChannel(socket: Socket = Socket(), onionAddress: String,
-                                         torProxy: InetSocketAddress): Either<IOException, ProcessChannel> {
-            try {
-                socket.connect(torProxy, 5000)
-
-                val dos = DataOutputStream(socket.getOutputStream())
-                dos.writeByte(0x04)
-                dos.writeByte(0x01)
-                dos.writeShort(80)
-                dos.writeInt(0x01)
-                dos.writeByte(0x00)
-                dos.write(onionAddress.toByteArray())
-                dos.writeByte(0x00)
-
-                val dis = DataInputStream(socket.getInputStream())
-                dis.readByte()
-                dis.readByte()
-                dis.readShort()
-                dis.readInt()
-
-                return Either.right(ProcessChannel(source = Okio.buffer(Okio.source(dis)),
-                        sink = Okio.buffer(Okio.sink(dos))))
-            } catch (e: IOException) {
-                return Either.left(e)
-            }
         }
     }
 }

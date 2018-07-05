@@ -8,17 +8,17 @@ import java.util.concurrent.CopyOnWriteArraySet
 import kotlin.concurrent.*
 
 /**
- * This link sends all previously sent messages periodically. 
+ * This link sends all previously sent messages periodically.
  */
 class StubbornPointToPoint(private val ffl: SendChannel<EventTask>) : Link() {
 
     private val sentCommunications: CopyOnWriteArraySet<CommunicationTask> = CopyOnWriteArraySet()
 
     val fixedRateTimer = fixedRateTimer(name = "timeout",
-            initialDelay = 100, period = 5000) {
-       async {
-           timeout()
-       }
+            initialDelay = 100, period = 30000) {
+        async {
+            timeout()
+        }
     }
 
     /**
@@ -26,12 +26,12 @@ class StubbornPointToPoint(private val ffl: SendChannel<EventTask>) : Link() {
      */
     private suspend fun timeout() {
         val sentCommunication = sentCommunications.iterator()
-        while(sentCommunication.hasNext()) ffl.send(sentCommunication.next())
+        while (sentCommunication.hasNext()) ffl.send(sentCommunication.next())
     }
 
     suspend fun deliver(event: CommunicationTask) {
         val deliveryChannel = deliveryChannels.iterator()
-        while(deliveryChannel.hasNext()) deliveryChannel.next().send(event)
+        while (deliveryChannel.hasNext()) deliveryChannel.next().send(event)
     }
 
     suspend fun send(event: CommunicationTask) {

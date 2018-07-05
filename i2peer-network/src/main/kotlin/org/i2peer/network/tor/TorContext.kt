@@ -1,13 +1,30 @@
 package org.i2peer.network.tor
 
-class TorContext {
+import java.net.InetSocketAddress
+
+interface TorContext {
+
+    val torConfig: TorConfig
+
+
+
     companion object {
+
+        val onions = ArrayList<String>()
+
+       // var torConfig torConfig
 
         /**
          * Gets all onion address configured for this node
          */
         fun localOnionAddress() : List<String> {
-            return ArrayList()//TODO: Populate this
+            return onions
+        }
+
+
+        fun add(onion: String) {
+            onions.add(onion)
         }
     }
+
 }

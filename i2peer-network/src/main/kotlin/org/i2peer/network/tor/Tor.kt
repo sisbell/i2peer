@@ -18,22 +18,22 @@ const val GEO_IPV_6_NAME = "geoip6"
 const val TORRC_NAME = "torrc"
 const val HIDDEN_SERVICE_NAME = "hiddenservice"
 
-data class ReplyLine(val status: Int, val msg: String, val rest: String?)
 
 data class TorConfig(
-    val configDir: File,
-    val userHome: String? = System.getProperty("user.home"),
-    val torExecutableFile: File = File(configDir, torExecutableFileName),
-    val geoIpFile: File = File(configDir, GEO_IP_NAME),
-    val geoIpv6File: File = File(configDir, GEO_IPV_6_NAME),
-    val torrcFile: File = File(configDir, TORRC_NAME),
-    val hiddenServiceDir: File = File(configDir, HIDDEN_SERVICE_NAME),
-    val dataDir: File = File(configDir, "lib/tor"),
-    val hostnameFile: File = File(dataDir, "hostname"),
-    val cookieAuthFile: File = File(dataDir, "control_auth_cookie"),
-    val libraryPath: File = torExecutableFile.parentFile,
-    val controlPort: Int = 0,
-    val controlPortFile: File = File(dataDir, "control.txt")
+        val configDir: File,
+        val userHome: String? = System.getProperty("user.home"),
+        val torExecutableFile: File = File(configDir, torExecutableFileName),
+        val geoIpFile: File = File(configDir, GEO_IP_NAME),
+        val geoIpv6File: File = File(configDir, GEO_IPV_6_NAME),
+        val torrcFile: File = File(configDir, TORRC_NAME),
+        val hiddenServiceDir: File = File(configDir, HIDDEN_SERVICE_NAME),
+        val dataDir: File = File(configDir, "lib/tor"),
+        val hostnameFile: File = File(dataDir, "hostname"),
+        val cookieAuthFile: File = File(dataDir, "control_auth_cookie"),
+        val libraryPath: File = torExecutableFile.parentFile,
+        val controlPort: Int = 0,
+        val controlPortFile: File = File(dataDir, "control.txt"),
+        val socksPort: Int = 9050
 ) {
 
     fun controlPortAuto() = controlPortFile.readText().split(":")[1].trim().toInt()
@@ -50,7 +50,8 @@ data class TorConfig(
                     out.write("GeoIPFile ${torConfig.geoIpFile.absoluteFile}\r\n")
                     out.write("GeoIPv6File ${torConfig.geoIpv6File.absolutePath}\r\n")
                     out.write("ControlPortWriteToFile ${torConfig.controlPortFile.absolutePath}\r\n")
-
+                    out.write("SocksPort ${torConfig.socksPort}\r\n")
+                    out.write("DataDirectory ${torConfig.dataDir.absolutePath}\r\n")
                     if (torConfig.controlPort == 0)
                         out.write("ControlPort auto\r\n")
                     else
@@ -70,9 +71,9 @@ data class TorConfig(
 
 object Installer {
     fun unzipArchive(
-        torExecutableFile: File,
-        torArchive: InputStream? = Files.getResourceStream(getPathToTorArchive()).getOrElse { null },
-        installDir: File = Files.resolveParent(torExecutableFile)
+            torExecutableFile: File,
+            torArchive: InputStream? = Files.getResourceStream(getPathToTorArchive()).getOrElse { null },
+            installDir: File = Files.resolveParent(torExecutableFile)
     ): Try<Unit> {
         return Try {
             val stream = ZipInputStream(torArchive)
@@ -97,7 +98,7 @@ object Installer {
 }
 
 fun doResourceFilesExist(geoIpFile: File, geoIpv6File: File, torrcFile: File): Boolean =
-    geoIpFile.exists() && geoIpv6File.exists() && torrcFile.exists()
+        geoIpFile.exists() && geoIpv6File.exists() && torrcFile.exists()
 
 fun getPathToTorArchive(osType: OsType? = osType(), parentPath: String? = "native"): String {
     return when (osType) {

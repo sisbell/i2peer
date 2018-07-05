@@ -1,15 +1,15 @@
 package org.i2peer.network
 
 import arrow.core.Try
-import arrow.syntax.function.pipe4
 import kotlinx.coroutines.experimental.channels.Channel
-import kotlinx.coroutines.experimental.channels.SendChannel
-import okio.BufferedSink
-import okio.BufferedSource
 import okio.ByteString
-import okio.Okio
+import org.i2peer.network.tor.TorConfig
 import org.i2peer.network.tor.TorControlMessage
-import java.io.*
+import org.slf4j.LoggerFactory
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.io.InputStream
 
 object Files {
     fun getResourceStream(fileName: String): Try<InputStream> = Try { javaClass.getResourceAsStream("/$fileName") }
@@ -54,12 +54,6 @@ object Files {
 
 }
 
-object IO {
-    fun source(input: InputStream): BufferedSource = Okio.buffer(Okio.source(input))
-
-    fun sink(output: OutputStream): BufferedSink = Okio.buffer(Okio.sink(output))
-}
-
 object Encoder {
     fun quote(value: String) = "\"$value\""
 
@@ -73,8 +67,8 @@ enum class OsType {
 }
 
 fun osType(
-    vmName: String = System.getProperty("java.vm.name"),
-    osName: String = System.getProperty("os.name")
+        vmName: String = System.getProperty("java.vm.name"),
+        osName: String = System.getProperty("os.name")
 ): OsType {
     if (vmName.contains("Dalvik")) return OsType.ANDROID
     return when {
@@ -85,50 +79,55 @@ fun osType(
     }
 }
 
-data class NetworkResponse(val code: Int, val message: String, val body: Any? = Unit)
+/**
+ * Reply line from Tor control protocol
+ */
+data class ReplyLine(val status: Int, val msg: String, val rest: String?)
 
-data class Requirements(val version: Int, val services: Set<String>)
+data class TorControlResponse(val code: Int, val message: String, val body: Any? = Unit)
 
-data class TorControlEvent(val response: NetworkResponse)
+data class TorControlEvent(val response: TorControlResponse)
 
-data class TorControlTransaction(val request: TorControlMessage, val response: NetworkResponse)
+data class TorControlTransaction(val request: TorControlMessage, val response: TorControlResponse)
 
-abstract class NetworkMessage(
-    val senderAddress: String? = null,
-    val recipientAddress: String? = null,
-    val requirements: Requirements? = null
-) {
-    abstract fun encode(): ByteArray
-}
+/**
+ * A Process is an abstraction that can perform some computation
+ *
+ * @property id a unique identity for this targetProcess
+ * @property port the endpoint of the targetProcess. In our case, this is the onion address. Other application transports
+ *  could use an IP Address
+ * @property path defines a destination (or name) of the service similar to a URL path
+ */
+data class Process(val id: String, val port: String, val path: String)
 
-data class Process(val id: String, val port: String) {
-    fun encode(dos: DataOutputStream) {
-        dos.writeUTF(id)
-        dos.writeUTF(port)
-    }
-}
-
-data class Message(val body: ByteArray)
+data class Message(val type: Int, val body: ByteArray)
 
 abstract class EventTask {
     abstract var name: String
 }
 
+/**
+ *
+ */
 data class ChannelTask(override var name: String, val channel: Channel<EventTask>) : EventTask()
 
+/**
+ * Wraps communication so we can define its type
+ *
+ * @property name type of task: SEND or DELIVER
+ */
 data class CommunicationTask(override var name: String, val communications: Communications) : EventTask()
 
-data class Communications(val process: Process, val message: Message, val type: Int) {
-    fun encode(): ByteArray {
-        val os = ByteArrayOutputStream()
-        DataOutputStream(os).use{ dos ->
-            dos.write(type)
-            process.encode(dos)
-            dos.write(message.body.size)
-            dos.write(message.body)
-        }
-        os.flush()
-        return os.toByteArray()
-    }
-}
+/**
+ *
+ * @property sourcePort the onion address of the process that is sending the communications
+ * @property targetProcess the process to send the communications to
+ * @property message the message to send
+ */
+data class Communications(val sourcePort: String, val targetProcess: Process, val message: Message)
+
+lateinit var config: TorConfig
+
+fun <T> loggerFor(clazz: Class<T>) = LoggerFactory.getLogger(clazz)
+
 

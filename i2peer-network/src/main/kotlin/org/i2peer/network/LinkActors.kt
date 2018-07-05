@@ -2,24 +2,47 @@ package org.i2peer.network
 
 import kotlinx.coroutines.experimental.CommonPool
 import kotlinx.coroutines.experimental.channels.Channel
+import kotlinx.coroutines.experimental.channels.SendChannel
 import kotlinx.coroutines.experimental.channels.actor
 import org.i2peer.network.links.FairLossPointToPoint
 import org.i2peer.network.links.Link
 import org.i2peer.network.links.StubbornPointToPoint
 
-fun perfectPointToPoint() = actor<EventTask>(CommonPool) {
-    val stubbornActor = stubbornPointToPoint()
-    stubbornActor.send(ChannelTask("Register", this.channel))
+val SEND = "Send"
+val DELIVER = "Deliver"
+val REGISTER = "Register"
 
-    val perfectLink = StubbornPointToPoint(stubbornActor)
+suspend fun SendChannel<EventTask>.sendCommunications(communications: Communications) :  SendChannel<EventTask> {
+    send(element = CommunicationTask(SEND, communications))
+    return this
+}
+
+suspend fun SendChannel<EventTask>.deliver(communications: Communications) :  SendChannel<EventTask> {
+    send(element = CommunicationTask(DELIVER, communications))
+    return this
+}
+
+suspend fun SendChannel<EventTask>.registerChannel(channel: Channel<EventTask>) : SendChannel<EventTask> {
+    send(element = ChannelTask(REGISTER, channel))
+    return this
+}
+
+suspend fun SendChannel<EventTask>.unregisterChannel(channel: Channel<EventTask>) :  SendChannel<EventTask>  {
+    send(element = ChannelTask("Unregister", channel))
+    return this
+}
+
+fun perfectPointToPoint() = actor<EventTask>(CommonPool) {
+    val stubbornActor = stubbornPointToPoint().registerChannel(this.channel)
+    val stubbornPointToPoint = StubbornPointToPoint(stubbornActor)
 
     for (event in channel) {
         when (event) {
-            is ChannelTask -> registerEvent(event, perfectLink)
+            is ChannelTask -> registerEvent(event, stubbornPointToPoint)
             is CommunicationTask -> {
                 when (event.name) {
-                    "Send" -> perfectLink.send(event)
-                    "Deliver" -> perfectLink.deliver(event)
+                    SEND -> stubbornPointToPoint.send(event)
+                    DELIVER -> stubbornPointToPoint.deliver(event)
                 }
             }
         }
@@ -33,8 +56,8 @@ fun fairLossPointToPoint() = actor<EventTask>(CommonPool) {
             is ChannelTask -> registerEvent(event, fll)
             is CommunicationTask -> {
                 when (event.name) {
-                    "Send" -> fll.sendAsync(event)
-                    "Deliver" -> fll.deliver(event)
+                    SEND -> fll.sendAsync(event)
+                    DELIVER -> fll.deliver(event)
                 }
             }
         }
@@ -43,18 +66,13 @@ fun fairLossPointToPoint() = actor<EventTask>(CommonPool) {
 
 fun registerEvent(event: ChannelTask, link: Link) {
     when (event.name) {
-        "Register" -> link.registerForDelivery(event.channel)
+        REGISTER -> link.registerForDelivery(event.channel)
         "Unregister" -> link.unregisterForDelivery(event.channel)
     }
 }
 
-fun registerChannel(channel: Channel<EventTask>, link: Link) {
-
-}
-
 fun stubbornPointToPoint() = actor<EventTask>(CommonPool) {
-    val fflActor = fairLossPointToPoint()
-    fflActor.send(ChannelTask("Register", this.channel))
+    val fflActor = fairLossPointToPoint().registerChannel(channel)
 
     val spp = StubbornPointToPoint(fflActor)
     for (event in channel) {
@@ -62,8 +80,8 @@ fun stubbornPointToPoint() = actor<EventTask>(CommonPool) {
             is ChannelTask -> registerEvent(event, spp)
             is CommunicationTask -> {
                 when (event.name) {
-                    "Send" -> spp.send(event)
-                    "Deliver" -> spp.deliver(event)
+                    SEND -> spp.send(event)
+                    DELIVER -> spp.deliver(event)
                 }
             }
         }

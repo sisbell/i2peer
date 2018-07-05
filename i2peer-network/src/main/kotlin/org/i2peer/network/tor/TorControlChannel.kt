@@ -1,35 +1,32 @@
 package org.i2peer.network.tor
 
 import arrow.core.Either
-import arrow.core.Try
-import arrow.core.getOrElse
 import kotlinx.coroutines.experimental.CommonPool
 import kotlinx.coroutines.experimental.async
 import kotlinx.coroutines.experimental.channels.actor
-import kotlinx.coroutines.experimental.launch
 import okio.BufferedSink
 import okio.BufferedSource
-import org.i2peer.network.ActorRegistry
-import org.i2peer.network.NetworkResponse
-import org.i2peer.network.TorControlEvent
-import org.i2peer.network.TorControlTransaction
+import org.i2peer.network.*
 import java.util.*
 
+/**
+ * Service for communicating with a Tor control port
+ */
 class TorControlChannel(private val source: BufferedSource, private val sink: BufferedSink) {
 
     suspend fun addOnion(
-        keyType: AddOnion.KeyType,
-        keyBlob: String,
-        ports: List<AddOnion.Port>,
-        flags: List<AddOnion.OnionFlag>? = null,
-        numStreams: Int? = 0,
-        clientName: String? = null,
-        clientBlob: String? = null
+            keyType: AddOnion.KeyType,
+            keyBlob: String,
+            ports: List<AddOnion.Port>,
+            flags: List<AddOnion.OnionFlag>? = null,
+            numStreams: Int? = 0,
+            clientName: String? = null,
+            clientBlob: String? = null
     ) = send(
-        AddOnion(
-            keyType = keyType, keyBlob = keyBlob, ports = ports,
-            flags = flags, numStreams = numStreams, clientName = clientName, clientBlob = clientBlob
-        )
+            AddOnion(
+                    keyType = keyType, keyBlob = keyBlob, ports = ports,
+                    flags = flags, numStreams = numStreams, clientName = clientName, clientBlob = clientBlob
+            )
     )
 
     suspend fun authenticate(value: ByteArray? = null) = send(Authenticate(value))
@@ -41,9 +38,9 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
     suspend fun dropGuards() = send(DropGuards())
 
     suspend fun extendCircuit(
-        circuitID: String,
-        serverSpec: List<String>? = null,
-        purpose: ExtendCircuit.Purpose? = ExtendCircuit.Purpose.general
+            circuitID: String,
+            serverSpec: List<String>? = null,
+            purpose: ExtendCircuit.Purpose? = ExtendCircuit.Purpose.general
     ) = send(ExtendCircuit(circuitID, serverSpec, purpose))
 
     suspend fun loadConfiguration(configText: String) = send(LoadConfiguration(configText))
@@ -59,31 +56,37 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
     suspend fun setConfiguration(params: Map<String, String>) = send(SetConfiguration(params))
 
     suspend fun setPassword(password: String) =
-        setConfiguration(hashMapOf("HashedControlPassword" to password))
+            setConfiguration(hashMapOf("HashedControlPassword" to password))
 
     suspend fun takeOwnership() = send(TakeOwnership())
 
     suspend fun send(message: TorControlMessage) = torControlWriter.send(message)
 
-    private val socketReader = kotlin.concurrent.fixedRateTimer(
-        name = "read-socket",
-        initialDelay = 0, period = 300
+    /**
+     * Reads from the Tor control endpoint
+     */
+    private val torControlReader = kotlin.concurrent.fixedRateTimer(
+            name = "read-socket",
+            initialDelay = 0, period = 300
     ) {
         while (!source.exhausted()) {
-            val result = read(source).fold({
+            val result = source.readTorControlResponse().fold({
 
             },
-                {
-                    async {
-                        torControlReader.send(Either.right(it))
-                    }
-                })
+                    {
+                        async {
+                            torControlMessageTransformer.send(Either.right(it))
+                        }
+                    })
         }
     }
 
+    /**
+     * Writes a TorControlMessage to the Tor control endpoint (sink)
+     */
     private val torControlWriter = actor<TorControlMessage>(CommonPool) {
         for (message in channel) {
-            torControlReader.send(Either.left(message))
+            torControlMessageTransformer.send(Either.left(message))
             try {
                 sink.write(message.encode())
                 sink.flush();
@@ -96,6 +99,9 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
 
     companion object {
 
+        /**
+         * Transforms a list of tor control replies into a map of key/value pairs
+         */
         fun toMap(lines: List<ReplyLine>?): Map<String, String?> {
             if (lines == null) return mapOf()
             val map = HashMap<String, String?>(lines.size)
@@ -106,7 +112,10 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
             return map
         }
 
-        private val torControlReader = actor<Either<TorControlMessage, NetworkResponse>>(CommonPool) {
+        /**
+         *
+         */
+        private val torControlMessageTransformer = actor<Either<TorControlMessage, TorControlResponse>>(CommonPool) {
             val messages = LinkedList<TorControlMessage>()
             for (message in channel) {
                 when (message) {
@@ -119,6 +128,9 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
             }
         }
 
+        /**
+         * Sends tor control events and transactions to any registered listeners (ActorRegistry)
+         */
         private val callbackActor = actor<Any>(CommonPool) {
             for (message in channel) {
                 when (message) {
@@ -136,47 +148,6 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
 
                     }
                 }
-            }
-        }
-
-        private fun readReply(input: BufferedSource): Try<LinkedList<ReplyLine>> {
-            return Try {
-                val reply = LinkedList<ReplyLine>()
-                var c: Char
-                do {
-                    var line = input.readUtf8Line()
-                    println(line)
-                    if (line == null && reply.isEmpty()) break
-
-                    val status = line!!.substring(0, 3)
-                    val msg = line.substring(4)
-                    var rest: String? = null
-
-                    c = line.get(3)
-                    if (c == '+') {
-                        val data = StringBuilder()
-                        while (true) {
-                            line = input.readUtf8Line()
-                            if (line === ".")
-                                break
-                            if (line!!.startsWith("."))
-                                line = line.substring(1)
-                            data.append("$line\n")
-                        }
-                        rest = data.toString()
-                    }
-                    reply.add(ReplyLine(status.toInt(), msg, rest))
-                } while (c != ' ')
-                reply
-            }
-        }
-
-        private fun read(source: BufferedSource): Try<NetworkResponse> {
-            return Try {
-                val lines = readReply(source).getOrElse { null }
-                val last = lines!!.peekLast()
-                if ("OK" === last.msg) lines.removeLast()
-                NetworkResponse(last.status, last.msg, toMap(lines))
             }
         }
     }

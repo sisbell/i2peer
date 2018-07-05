@@ -11,21 +11,30 @@ import org.i2peer.network.tor.TorContext
 class FairLossPointToPoint() : Link() {
 
     /**
-     * Sends message to process. The process may be a remote process located on another node or a local
-     * process located on the same node.
+     * Sends message to targetProcess. The targetProcess may be a remote targetProcess located on another node or a local
+     * targetProcess located on the same node.
      */
     fun sendAsync(communicationTask: CommunicationTask) = async {
-        //process is local - find actor/channel
-        if(TorContext.localOnionAddress().contains(communicationTask.communications.process.port)) {
-            val channel = ActorRegistry.get(communicationTask.communications.process.id)
+        //targetProcess is local - find actor/channel
+        if (TorContext.localOnionAddress().contains(communicationTask.communications.targetProcess.port)) {
+            val channel = ActorRegistry.get(communicationTask.communications.targetProcess.id)
             channel.forEach { it.send(communicationTask) }
-        } else {//remote process
+        } else {//remote targetProcess
             ProcessChannel.send(communicationTask.communications)
         }
     }
 
-    suspend fun deliver(event: CommunicationTask) {
+    /**
+     * Delivers communications task up the network stack. The communications port must match the address of this local
+     * targetProcess.
+     */
+    suspend fun deliver(communicationTask: CommunicationTask) {
+        LOG.info("Delivered communcations: ${communicationTask.communications}")
         val deliveryChannel = deliveryChannels.iterator()
-        while(deliveryChannel.hasNext()) deliveryChannel.next().send(event)
+        while (deliveryChannel.hasNext()) deliveryChannel.next().send(communicationTask)
+    }
+
+    companion object {
+        val LOG = loggerFor(javaClass)
     }
 }
