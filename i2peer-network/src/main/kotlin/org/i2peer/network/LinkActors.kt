@@ -6,6 +6,7 @@ import kotlinx.coroutines.experimental.channels.SendChannel
 import kotlinx.coroutines.experimental.channels.actor
 import org.i2peer.network.links.FairLossPointToPoint
 import org.i2peer.network.links.Link
+import org.i2peer.network.links.PerfectPointToPoint
 import org.i2peer.network.links.StubbornPointToPoint
 
 val SEND = "Send"
@@ -40,6 +41,9 @@ fun registerEvent(event: ChannelTask, link: Link) {
     }
 }
 
+/**
+ * Routes channel events to the specified link
+ */
 suspend fun Channel<EventTask>.routeEventsTo(link: Link) {
     for (event in this) {
         when (event) {
@@ -54,14 +58,22 @@ suspend fun Channel<EventTask>.routeEventsTo(link: Link) {
     }
 }
 
+/**
+ * Deliver events from specified actor to this channel
+ */
+suspend fun Channel<EventTask>.deliverEventsFrom(actor: SendChannel<EventTask>): Channel<EventTask> {
+    actor.registerChannel(this)
+    return this
+}
+
 fun stubbornPointToPoint() = actor<EventTask>(CommonPool) {
-    val fflActor = fairLossPointToPoint().registerChannel(channel)
-    channel.routeEventsTo(StubbornPointToPoint(fflActor))
+    val fairLossActor = channel.deliverEventsFrom(fairLossPointToPoint())
+    channel.routeEventsTo(StubbornPointToPoint(fairLossActor))
 }
 
 fun perfectPointToPoint() = actor<EventTask>(CommonPool) {
-    val stubbornActor = stubbornPointToPoint().registerChannel(channel)
-    channel.routeEventsTo(StubbornPointToPoint(stubbornActor))
+    val stubbornActor = channel.deliverEventsFrom(stubbornPointToPoint())
+    channel.routeEventsTo(PerfectPointToPoint(stubbornActor))
 }
 
 fun fairLossPointToPoint() = actor<EventTask>(CommonPool) {

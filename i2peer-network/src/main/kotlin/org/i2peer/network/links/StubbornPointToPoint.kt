@@ -10,7 +10,7 @@ import kotlin.concurrent.*
 /**
  * This link sends all previously sent messages periodically.
  */
-class StubbornPointToPoint(private val ffl: SendChannel<EventTask>) : Link() {
+class StubbornPointToPoint(private val fairLossLink: SendChannel<EventTask>) : Link() {
 
     private val sentCommunications: CopyOnWriteArraySet<CommunicationTask> = CopyOnWriteArraySet()
 
@@ -26,7 +26,7 @@ class StubbornPointToPoint(private val ffl: SendChannel<EventTask>) : Link() {
      */
     private suspend fun timeout() {
         val sentCommunication = sentCommunications.iterator()
-        while (sentCommunication.hasNext()) ffl.send(sentCommunication.next())
+        while (sentCommunication.hasNext()) fairLossLink.send(sentCommunication.next())
     }
 
     override suspend fun deliver(event: CommunicationTask) {
@@ -35,7 +35,7 @@ class StubbornPointToPoint(private val ffl: SendChannel<EventTask>) : Link() {
     }
 
     override suspend fun send(event: CommunicationTask) {
-        ffl.send(event)
+        fairLossLink.send(event)
         sentCommunications.add(event)
     }
 }
