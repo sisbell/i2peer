@@ -29,12 +29,12 @@ class StubbornPointToPoint(private val ffl: SendChannel<EventTask>) : Link() {
         while (sentCommunication.hasNext()) ffl.send(sentCommunication.next())
     }
 
-    suspend fun deliver(event: CommunicationTask) {
+    override suspend fun deliver(event: CommunicationTask) {
         val deliveryChannel = deliveryChannels.iterator()
         while (deliveryChannel.hasNext()) deliveryChannel.next().send(event)
     }
 
-    suspend fun send(event: CommunicationTask) {
+    override suspend fun send(event: CommunicationTask) {
         ffl.send(event)
         sentCommunications.add(event)
     }

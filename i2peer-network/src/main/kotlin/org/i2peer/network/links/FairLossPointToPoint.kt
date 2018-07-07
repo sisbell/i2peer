@@ -9,6 +9,9 @@ import org.i2peer.network.tor.TorContext
  * no guarantee of success
  */
 class FairLossPointToPoint() : Link() {
+    override suspend fun send(event: CommunicationTask) {
+        sendAsync(event)
+    }
 
     /**
      * Sends message to targetProcess. The targetProcess may be a remote targetProcess located on another node or a local
@@ -28,7 +31,7 @@ class FairLossPointToPoint() : Link() {
      * Delivers communications task up the network stack. The communications port must match the address of this local
      * targetProcess.
      */
-    suspend fun deliver(communicationTask: CommunicationTask) {
+    override suspend fun deliver(communicationTask: CommunicationTask) {
         LOG.info("Delivered communcations: ${communicationTask.communications}")
         val deliveryChannel = deliveryChannels.iterator()
         while (deliveryChannel.hasNext()) deliveryChannel.next().send(communicationTask)
