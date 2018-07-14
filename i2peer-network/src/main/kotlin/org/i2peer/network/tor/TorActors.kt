@@ -1,7 +1,5 @@
 package org.i2peer.network.tor
 
-import org.i2peer.network.Files.createDir
-import org.i2peer.network.Files.setPerms
 import org.i2peer.network.tor.Installer.copyFiles
 import org.i2peer.network.tor.Installer.unzipArchive
 import org.i2peer.network.tor.TorConfig.Companion.writeConfig
@@ -9,6 +7,8 @@ import kotlinx.coroutines.experimental.CommonPool
 import kotlinx.coroutines.experimental.async
 import kotlinx.coroutines.experimental.channels.SendChannel
 import kotlinx.coroutines.experimental.channels.actor
+import org.i2peer.network.createDir
+import org.i2peer.network.setPermsRwx
 import java.io.ByteArrayOutputStream
 import java.lang.System.currentTimeMillis
 import java.util.concurrent.TimeUnit
@@ -27,7 +27,7 @@ fun torConfigWriter() = actor<TorStartData>(CommonPool) {
     val data = channel.receive()
     data.event.send(EventMessage("TorConfigWriter"))
 
-    if (createDir(data.torConfig.dataDir)) {
+    if (data.torConfig.dataDir.createDir()) {
         writeConfig(data.torConfig).fold({
             data.event.send(EventError("Failed to write config files", it))
         }, {
@@ -68,7 +68,7 @@ fun torProgramUnarchiver() = actor<TorStartData>(CommonPool) {
     unzipArchive(config.torExecutableFile).fold(
             { data.event.send(EventError("Failed to unzip tor archive", it)) },
             {
-                setPerms(config.torExecutableFile)
+                config.torExecutableFile.setPermsRwx()
                         .fold({ data.event.send(EventError("Failed to set permissions on tor", it)) },
                                 { torConfigFilesCopier().send(data) })
             })

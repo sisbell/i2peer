@@ -1,2 +1,9 @@
 group 'i2peer-network'
 version '1.0-SNAPSHOT'
+
+dependencies {
+    implementation "com.goterl.lazycode:lazysodium-java:2.5.0"
+    implementation "net.java.dev.jna:jna:4.5.2"
+    compile group: 'org.iq80.leveldb', name: 'leveldb', version:'0.10'
+    compile group: 'org.iq80.leveldb', name: 'leveldb-api', version:'0.10'
+}

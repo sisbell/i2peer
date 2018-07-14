@@ -7,51 +7,18 @@ import org.i2peer.network.tor.TorConfig
 import org.i2peer.network.tor.TorControlMessage
 import org.slf4j.LoggerFactory
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 
 object Files {
     fun getResourceStream(fileName: String): Try<InputStream> = Try { javaClass.getResourceAsStream("/$fileName") }
 
-    fun setToReadOnlyPermissions(file: File): Try<Boolean> {
-        return Try {
-            file.setReadable(false, false) &&
-                    file.setWritable(false, false) &&
-                    file.setExecutable(false, false) &&
-                    file.setReadable(true, true) &&
-                    file.setWritable(true, true) &&
-                    file.setExecutable(true, true)
-        }
-    }
-
-    fun setPerms(file: File): Try<Boolean> {
-        return Try {
-            file.setReadable(true) &&
-                    file.setExecutable(true) &&
-                    file.setWritable(false) &&
-                    file.setWritable(true, true)
-        }
-    }
-
-    fun copyFile(input: InputStream, outputFile: File): Try<Long> {
-        return Try {
-            if (outputFile.exists() && !outputFile.delete())
-                throw IOException("Unable to copy file: ${outputFile.absolutePath}")
-            input.copyTo(FileOutputStream(outputFile))
-        }
-    }
 
     fun copyResource(resourceName: String, outputFile: File): Try<Long> {
         return getResourceStream(resourceName).fold({ throw IOException("Resource not found: $resourceName") }, {
-            copyFile(it, outputFile)
+            it.copyToFile(outputFile)
         })
     }
-
-    fun createDir(dir: File): Boolean = dir.exists() || dir.mkdirs()
-
-    fun resolveParent(file: File): File = if (file.parentFile.exists()) file.parentFile else file
-
 }
 
 object Encoder {
@@ -91,7 +58,8 @@ data class TorControlEvent(val response: TorControlResponse)
 data class TorControlTransaction(val request: TorControlMessage, val response: TorControlResponse)
 
 /**
- * A Process is an abstraction that can perform some computation
+ * A Process is an abstraction that can perform some computation. The specified publicKey and sessionToken
+ * are used by the process to decide if this process will accept the message.
  *
  * @property id a unique identity for this targetProcess
  * @property port the endpoint of the targetProcess. In our case, this is the onion address. Other application transports
@@ -106,25 +74,36 @@ abstract class EventTask {
     abstract var name: String
 }
 
+interface CommunicationTaskMatcher {
+    fun match(task: CommunicationTask): Boolean
+}
+
+class DeliveryChannel(val channel: Channel<EventTask>, val matchers: List<CommunicationTaskMatcher>) {
+    fun match(task: CommunicationTask) :Boolean = matchers.all { it.match(task) }
+}
+
 /**
  *
  */
-data class ChannelTask(override var name: String, val channel: Channel<EventTask>) : EventTask()
+data class ChannelTask(override var name: String, val deliveryChannel: DeliveryChannel) : EventTask()
 
 /**
  * Wraps communication so we can define its type
  *
  * @property name type of task: SEND or DELIVER
  */
-data class CommunicationTask(override var name: String, val communications: Communications) : EventTask()
+data class CommunicationTask(override var name: String, val communicationsPacket: CommunicationsPacket) : EventTask()
 
 /**
  *
- * @property sourcePort the onion address of the process that is sending the communications
- * @property targetProcess the process to send the communications to
+ * @property sourcePort the onion address of the process that is sending the communicationsPacket
+ * @property targetProcess the process to send the communicationsPacket to
  * @property message the message to send
+ * @property authInfo authentication info used to decide whether to process this communication
  */
-data class Communications(val sourcePort: String, val targetProcess: Process, val message: Message)
+data class CommunicationsPacket(val sourcePort: String, val targetProcess: Process, val authInfo: AuthInfo, val timestamp: Long, val message: Message)
+
+abstract class AuthInfo(val type: Int)
 
 lateinit var config: TorConfig
 

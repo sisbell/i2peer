@@ -1,5 +1,6 @@
 package org.i2peer.network
 
+import com.google.common.collect.Lists
 import kotlinx.coroutines.experimental.CommonPool
 import kotlinx.coroutines.experimental.channels.Channel
 import kotlinx.coroutines.experimental.channels.SendChannel
@@ -14,30 +15,31 @@ val DELIVER = "Deliver"
 val REGISTER = "Register"
 val UNREGISTER = "Unregister"
 
-suspend fun SendChannel<EventTask>.sendCommunications(communications: Communications): SendChannel<EventTask> {
-    send(element = CommunicationTask(SEND, communications))
+suspend fun SendChannel<EventTask>.sendCommunications(communicationsPacket: CommunicationsPacket): SendChannel<EventTask> {
+    send(element = CommunicationTask(SEND, communicationsPacket))
     return this
 }
 
-suspend fun SendChannel<EventTask>.deliver(communications: Communications): SendChannel<EventTask> {
-    send(element = CommunicationTask(DELIVER, communications))
+suspend fun SendChannel<EventTask>.deliver(communicationsPacket: CommunicationsPacket): SendChannel<EventTask> {
+    println("SendChannel.deliver")
+    send(element = CommunicationTask(DELIVER, communicationsPacket))
     return this
 }
 
-suspend fun SendChannel<EventTask>.registerChannel(channel: Channel<EventTask>): SendChannel<EventTask> {
-    send(element = ChannelTask(REGISTER, channel))
+suspend fun SendChannel<EventTask>.registerChannel(deliveryChannel: DeliveryChannel): SendChannel<EventTask> {
+    send(element = ChannelTask(REGISTER, deliveryChannel))
     return this
 }
 
-suspend fun SendChannel<EventTask>.unregisterChannel(channel: Channel<EventTask>): SendChannel<EventTask> {
-    send(element = ChannelTask(UNREGISTER, channel))
+suspend fun SendChannel<EventTask>.unregisterChannel(deliveryChannel: DeliveryChannel): SendChannel<EventTask> {
+    send(element = ChannelTask(UNREGISTER, deliveryChannel))
     return this
 }
 
-fun registerEvent(event: ChannelTask, link: Link) {
-    when (event.name) {
-        REGISTER -> link.registerForDelivery(event.channel)
-        UNREGISTER -> link.unregisterForDelivery(event.channel)
+fun registerEvent(channelTask: ChannelTask, link: Link) {
+    when (channelTask.name) {
+        REGISTER -> link.registerForDelivery(channelTask.deliveryChannel)
+        UNREGISTER -> link.unregisterForDelivery(channelTask.deliveryChannel)
     }
 }
 
@@ -61,18 +63,16 @@ suspend fun Channel<EventTask>.routeEventsTo(link: Link) {
 /**
  * Deliver events from specified actor to this channel
  */
-suspend fun Channel<EventTask>.deliverEventsFrom(actor: SendChannel<EventTask>): Channel<EventTask> {
-    actor.registerChannel(this)
-    return this
-}
+suspend fun Channel<EventTask>.deliverEventsFrom(actor: SendChannel<EventTask>, matchers: List<CommunicationTaskMatcher>)
+        : SendChannel<EventTask> = actor.registerChannel(DeliveryChannel(this, matchers))
 
 fun stubbornPointToPoint() = actor<EventTask>(CommonPool) {
-    val fairLossActor = channel.deliverEventsFrom(fairLossPointToPoint())
+    val fairLossActor = channel.deliverEventsFrom(fairLossPointToPoint(), Lists.newArrayList())
     channel.routeEventsTo(StubbornPointToPoint(fairLossActor))
 }
 
 fun perfectPointToPoint() = actor<EventTask>(CommonPool) {
-    val stubbornActor = channel.deliverEventsFrom(stubbornPointToPoint())
+    val stubbornActor = channel.deliverEventsFrom(stubbornPointToPoint(), Lists.newArrayList())
     channel.routeEventsTo(PerfectPointToPoint(stubbornActor))
 }
 

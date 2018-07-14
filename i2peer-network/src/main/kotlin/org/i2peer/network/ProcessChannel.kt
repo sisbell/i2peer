@@ -22,30 +22,27 @@ class ProcessChannel(val source: BufferedSource, val sink: BufferedSink) {
     /**
      * Sends a communication message to the specified sink.
      */
-    suspend fun sendCommunications(communications: Communications) = writer.send(communications)
-
-    /**
-     * Responsible for encoding communications and sending them to the sink
-     */
-    private val writer = actor<Communications>(CommonPool) {
-        for (communications in channel) sink.writeCommunications(communications).flush()
+    fun sendCommunications(communicationsPacket: CommunicationsPacket) {
+        async {
+            sink.writeCommunications(communicationsPacket);//.writeSignature().flush()
+        }
     }
 
     /**
      * Returns true if the channel is closed and can no longer be used
      */
-    fun isOpen(): Boolean = source.isOpen && sink.isOpen
+    fun isOpen(): Boolean = false//source.isOpen && sink.isOpen
 
     companion object {
 
         val LOG = loggerFor(javaClass)
 
         /**
-         * Sends a communication message to the onion address specified in the Communications.targetProcess.port
+         * Sends a communication message to the onion address specified in the CommunicationsPacket.targetProcess.port
          */
-        suspend fun send(communications: Communications) = peerActor.send(communications)
+        suspend fun send(communicationsPacket: CommunicationsPacket) = peerActor.send(communicationsPacket)
 
-        private var peerActor = actor<Communications>(CommonPool) {
+        private var peerActor = actor<CommunicationsPacket>(CommonPool) {
             val channelMap: MutableMap<String, ProcessChannel> = ConcurrentHashMap()
             for (communications in channel) {
                 async {

@@ -9,6 +9,7 @@ import org.i2peer.network.Files
 import org.i2peer.network.Files.copyResource
 import org.i2peer.network.OsType
 import org.i2peer.network.osType
+import org.i2peer.network.resolveParent
 import java.io.File
 import java.io.InputStream
 import java.util.zip.ZipInputStream
@@ -52,6 +53,8 @@ data class TorConfig(
                     out.write("ControlPortWriteToFile ${torConfig.controlPortFile.absolutePath}\r\n")
                     out.write("SocksPort ${torConfig.socksPort}\r\n")
                     out.write("DataDirectory ${torConfig.dataDir.absolutePath}\r\n")
+                   // out.write("HiddenServiceDir ${torConfig.hiddenServiceDir.absolutePath}\r\n")
+                  //  out.write("HiddenServiceVersion 3\r\n")
                     if (torConfig.controlPort == 0)
                         out.write("ControlPort auto\r\n")
                     else
@@ -73,7 +76,7 @@ object Installer {
     fun unzipArchive(
             torExecutableFile: File,
             torArchive: InputStream? = Files.getResourceStream(getPathToTorArchive()).getOrElse { null },
-            installDir: File = Files.resolveParent(torExecutableFile)
+            installDir: File = torExecutableFile.resolveParent()
     ): Try<Unit> {
         return Try {
             val stream = ZipInputStream(torArchive)
@@ -102,7 +105,7 @@ fun doResourceFilesExist(geoIpFile: File, geoIpv6File: File, torrcFile: File): B
 
 fun getPathToTorArchive(osType: OsType? = osType(), parentPath: String? = "native"): String {
     return when (osType) {
-        OsType.WINDOWS -> "$parentPath/windows/x86/tor.zip"
+        OsType.WINDOWS -> "$parentPath\\windows\\x86\\tor.zip"
         OsType.MAC -> "$parentPath/osx/x64/tor.zip"
         OsType.LINUX_64 -> "$parentPath/linux/x64/tor.zip"
         else -> throw RuntimeException("OS Unsupported")

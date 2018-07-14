@@ -3,14 +3,15 @@ package org.i2peer.views
 import javafx.scene.control.TextField
 import kotlinx.coroutines.experimental.async
 import kotlinx.coroutines.experimental.channels.actor
+import kotlinx.coroutines.experimental.launch
 import org.i2peer.Styles
+import org.i2peer.auth.NoAuthInfo
 import org.i2peer.network.*
 import org.i2peer.network.tor.*
 import tornadofx.*
 import java.io.File
 import java.net.ServerSocket
 import java.net.Socket
-
 
 var onionField: TextField by singleAssign()
 
@@ -20,9 +21,10 @@ var proxyField: TextField by singleAssign()
 
 var messageField: TextField by singleAssign()
 
+var thread: Thread by singleAssign()
 
 /**
- * Test App to Verify Connections. Installs Tor, Sets up onion. Sets up port to listen for communications
+ * Test App to Verify Connections. Installs Tor, Sets up onion. Sets up port to listen for communicationsPacket
  */
 class MainView : View("Controller") {
     var onionAddress: String = ""
@@ -31,9 +33,33 @@ class MainView : View("Controller") {
         addClass(Styles.welcomeScreen)
         top {
             stackpane {
+                menubar {
+                    menu("File") {
+                        menu("Connect") {
+                            item("A")
+                            item("B")
+                        }
+                        item("Save")
+                        item("Quit")
+                    }
+                    menu("Edit") {
+                        item("Copy")
+                        item("Paste")
+                    }
+                    menu("Bookmark") {
+
+                    }
+                    menu("History") {
+
+                    }
+                    menu("Tools") {
+
+                    }
+                }
                 label(title).addClass(Styles.heading)
             }
         }
+
 
         center {
             vbox {
@@ -41,7 +67,9 @@ class MainView : View("Controller") {
                 portField = textfield()// listener to receive messages
                 button("Start Server") {
                     setOnAction {
-                        ServerSocket(portField.characters.toString().toInt()).deliverCommunications()
+                       launch {
+                            ServerSocket(portField.characters.toString().toInt()).deliverCommunications()
+                        }
                     }
                 }
 
@@ -60,9 +88,9 @@ class MainView : View("Controller") {
                     setOnAction {
                         async {
                             println(onionField.characters)
-                            val process = Process("myId", onionField.characters.toString(), "/api/send_message")
+                            val process = Process("myId", onionField.characters.toString(), "i2peer://send_message")
                             val message = Message(4, messageField.characters.toString().toByteArray())
-                            val communications = Communications(onionAddress, process, message)
+                            val communications = CommunicationsPacket(onionAddress, process, NoAuthInfo(), System.currentTimeMillis(), message)
                             perfectPointToPoint().sendCommunications(communications)
                         }
                     }
@@ -105,7 +133,7 @@ class MainView : View("Controller") {
                     val torchannel = TorControlChannel(source, sink)
                     torchannel.authenticate()//simple auth
                     torchannel.addOnion(
-                            keyType = AddOnion.KeyType.NEW, keyBlob = "BEST",
+                            keyType = AddOnion.KeyType.NEW, keyBlob = "ED25519-V3",
                             ports = listOf(AddOnion.Port(80, "127.0.0.1:" + portField.characters.toString()))
                     )
                 }

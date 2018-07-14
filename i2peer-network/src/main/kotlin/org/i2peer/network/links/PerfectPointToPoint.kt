@@ -15,16 +15,17 @@ class PerfectPointToPoint(private val stubbornLink: SendChannel<EventTask>) : Li
     /**
      * Delivers event once
      */
-    override suspend fun deliver(event: CommunicationTask) {
-        println("PerfectLink: " + event.communications.message)
-        if (!delivered.contains(event)) {
-            delivered.add(event)
-            val deliveryChannel = deliveryChannels.iterator()
-            while (deliveryChannel.hasNext()) deliveryChannel.next().send(event)
+    override suspend fun deliver(communicationTask: CommunicationTask) {
+        println("Deliver PerfectLink: " + communicationTask.communicationsPacket.message)
+        if (!delivered.contains(communicationTask)) {
+            delivered.add(communicationTask)
+            val deliveryChannel = deliveryChannels.filter { it.match(communicationTask) }.iterator()
+            while (deliveryChannel.hasNext()) deliveryChannel.next().channel.send(communicationTask)
         }
     }
 
     override suspend fun send(event: CommunicationTask) {
+        println("Send PerfectLink: " + event.communicationsPacket.message)
         stubbornLink.send(event)
     }
 

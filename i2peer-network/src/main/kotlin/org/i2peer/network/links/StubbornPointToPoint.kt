@@ -29,13 +29,15 @@ class StubbornPointToPoint(private val fairLossLink: SendChannel<EventTask>) : L
         while (sentCommunication.hasNext()) fairLossLink.send(sentCommunication.next())
     }
 
-    override suspend fun deliver(event: CommunicationTask) {
-        val deliveryChannel = deliveryChannels.iterator()
-        while (deliveryChannel.hasNext()) deliveryChannel.next().send(event)
+    override suspend fun deliver(communicationTask: CommunicationTask) {
+        val deliveryChannel = deliveryChannels.filter { it.match(communicationTask) }.iterator()
+        while (deliveryChannel.hasNext()) deliveryChannel.next().channel.send(communicationTask)
+
     }
 
-    override suspend fun send(event: CommunicationTask) {
-        fairLossLink.send(event)
-        sentCommunications.add(event)
+    override suspend fun send(communicationTask: CommunicationTask) {
+        println("Send stubborn link")
+        fairLossLink.send(communicationTask)
+        sentCommunications.add(communicationTask)
     }
 }

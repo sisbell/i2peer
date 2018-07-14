@@ -10,6 +10,7 @@ import org.i2peer.network.tor.TorContext
  */
 class FairLossPointToPoint() : Link() {
     override suspend fun send(event: CommunicationTask) {
+        println("Send fair loss link")
         sendAsync(event)
     }
 
@@ -19,22 +20,24 @@ class FairLossPointToPoint() : Link() {
      */
     fun sendAsync(communicationTask: CommunicationTask) = async {
         //targetProcess is local - find actor/channel
-        if (TorContext.localOnionAddress().contains(communicationTask.communications.targetProcess.port)) {
-            val channel = ActorRegistry.get(communicationTask.communications.targetProcess.id)
+        if (TorContext.localOnionAddress().contains(communicationTask.communicationsPacket.targetProcess.port)) {
+            val channel = ActorRegistry.get(communicationTask.communicationsPacket.targetProcess.id)
             channel.forEach { it.send(communicationTask) }
         } else {//remote targetProcess
-            ProcessChannel.send(communicationTask.communications)
+            ProcessChannel.send(communicationTask.communicationsPacket)
         }
     }
 
     /**
-     * Delivers communications task up the network stack. The communications port must match the address of this local
+     * Delivers communicationsPacket task up the network stack. The communicationsPacket port must match the address of this local
      * targetProcess.
      */
     override suspend fun deliver(communicationTask: CommunicationTask) {
-        LOG.info("Delivered communcations: ${communicationTask.communications}")
-        val deliveryChannel = deliveryChannels.iterator()
-        while (deliveryChannel.hasNext()) deliveryChannel.next().send(communicationTask)
+        LOG.info("Delivered communcations: ${communicationTask.communicationsPacket}")
+        //TODO: need to verify signature before passing up the stack
+        //communicationTask.communicationsPacket
+        val deliveryChannel = deliveryChannels.filter { it.match(communicationTask) }.iterator()
+        while (deliveryChannel.hasNext()) deliveryChannel.next().channel.send(communicationTask)
     }
 
     companion object {
