@@ -1,9 +1,10 @@
 package org.i2peer.network.tor
 
 import arrow.core.Either
-import kotlinx.coroutines.experimental.CommonPool
-import kotlinx.coroutines.experimental.async
-import kotlinx.coroutines.experimental.channels.actor
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.ObsoleteCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.actor
 import okio.BufferedSink
 import okio.BufferedSource
 import org.i2peer.network.*
@@ -12,21 +13,25 @@ import java.util.*
 /**
  * Service for communicating with a Tor control port
  */
-class TorControlChannel(private val source: BufferedSource, private val sink: BufferedSink) {
+class TorControlChannel(
+    private val source: BufferedSource,
+    private val sink: BufferedSink,
+    private val networkContext: NetworkContext
+) {
 
     suspend fun addOnion(
-            keyType: AddOnion.KeyType,
-            keyBlob: String,
-            ports: List<AddOnion.Port>,
-            flags: List<AddOnion.OnionFlag>? = null,
-            numStreams: Int? = 0,
-            clientName: String? = null,
-            clientBlob: String? = null
+        keyType: AddOnion.KeyType,
+        keyBlob: String,
+        ports: List<AddOnion.Port>,
+        flags: List<AddOnion.OnionFlag>? = null,
+        numStreams: Int? = 0,
+        clientName: String? = null,
+        clientBlob: String? = null
     ) = send(
-            AddOnion(
-                    keyType = keyType, keyBlob = keyBlob, ports = ports,
-                    flags = flags, numStreams = numStreams, clientName = clientName, clientBlob = clientBlob
-            )
+        AddOnion(
+            keyType = keyType, keyBlob = keyBlob, ports = ports,
+            flags = flags, numStreams = numStreams, clientName = clientName, clientBlob = clientBlob
+        )
     )
 
     suspend fun authenticate(value: ByteArray? = null) = send(Authenticate(value))
@@ -38,9 +43,9 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
     suspend fun dropGuards() = send(DropGuards())
 
     suspend fun extendCircuit(
-            circuitID: String,
-            serverSpec: List<String>? = null,
-            purpose: ExtendCircuit.Purpose? = ExtendCircuit.Purpose.general
+        circuitID: String,
+        serverSpec: List<String>? = null,
+        purpose: ExtendCircuit.Purpose? = ExtendCircuit.Purpose.general
     ) = send(ExtendCircuit(circuitID, serverSpec, purpose))
 
     suspend fun loadConfiguration(configText: String) = send(LoadConfiguration(configText))
@@ -56,7 +61,7 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
     suspend fun setConfiguration(params: Map<String, String>) = send(SetConfiguration(params))
 
     suspend fun setPassword(password: String) =
-            setConfiguration(hashMapOf("HashedControlPassword" to password))
+        setConfiguration(hashMapOf("HashedControlPassword" to password))
 
     suspend fun takeOwnership() = send(TakeOwnership())
 
@@ -66,33 +71,75 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
      * Reads from the Tor control endpoint
      */
     private val torControlReader = kotlin.concurrent.fixedRateTimer(
-            name = "read-socket",
-            initialDelay = 0, period = 300
+        name = "read-socket",
+        initialDelay = 0, period = 300
     ) {
         while (!source.exhausted()) {
             val result = source.readTorControlResponse().fold({
 
             },
-                    {
-                        async {
-                            torControlMessageTransformer.send(Either.right(it))
-                        }
-                    })
+                {
+                    GlobalScope.async {
+                        torControlMessageTransformer.send(Either.right(it))
+                    }
+                })
         }
     }
 
     /**
      * Writes a TorControlMessage to the Tor control endpoint (sink)
      */
-    private val torControlWriter = actor<TorControlMessage>(CommonPool) {
+    @ObsoleteCoroutinesApi
+    private val torControlWriter = GlobalScope.actor<TorControlMessage> {
         for (message in channel) {
             torControlMessageTransformer.send(Either.left(message))
             try {
                 sink.write(message.encode())
-                sink.flush();
+                sink.flush()
             } catch (e: Exception) {
                 e.printStackTrace()
                 //TODO: Send error
+            }
+        }
+    }
+
+    /**
+     *
+     */
+    @ObsoleteCoroutinesApi
+    private val torControlMessageTransformer = GlobalScope.actor<Either<TorControlMessage, TorControlResponse>> {
+        val messages = LinkedList<TorControlMessage>()
+        for (message in channel) {
+            when (message) {
+                is Either.Left -> messages.add(message.a)
+                is Either.Right -> when (message.b.code) {
+                    250 -> callbackActor.send(TorControlTransaction(messages.pop(), message.b))
+                    650 -> callbackActor.send(TorControlEvent(message.b))
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends tor control events and transactions to any registered listeners (ActorRegistry)
+     */
+    @ObsoleteCoroutinesApi
+    private val callbackActor = GlobalScope.actor<Any> {
+        for (message in channel) {
+            when (message) {
+                is TorControlEvent -> {
+                    networkContext.getActorChannels(TOR_CONTROL_EVENT).forEach {
+                        it.send(TorControlEvent(message.response))
+                    }
+                }
+                is TorControlTransaction -> {
+                    networkContext.getActorChannels(TOR_CONTROL_TRANSACTION).forEach {
+                        it.send(TorControlTransaction(message.request, message.response))
+                    }
+                }
+                else -> {
+
+                }
             }
         }
     }
@@ -110,45 +157,6 @@ class TorControlChannel(private val source: BufferedSource, private val sink: Bu
                 map[kv[0]] = if (kv.size == 2) kv[1] else null
             }
             return map
-        }
-
-        /**
-         *
-         */
-        private val torControlMessageTransformer = actor<Either<TorControlMessage, TorControlResponse>>(CommonPool) {
-            val messages = LinkedList<TorControlMessage>()
-            for (message in channel) {
-                when (message) {
-                    is Either.Left -> messages.add(message.a)
-                    is Either.Right -> when (message.b.code) {
-                        250 -> callbackActor.send(TorControlTransaction(messages.pop(), message.b))
-                        650 -> callbackActor.send(TorControlEvent(message.b))
-                    }
-                }
-            }
-        }
-
-        /**
-         * Sends tor control events and transactions to any registered listeners (ActorRegistry)
-         */
-        private val callbackActor = actor<Any>(CommonPool) {
-            for (message in channel) {
-                when (message) {
-                    is TorControlEvent -> {
-                        ActorRegistry.get(ActorRegistry.TOR_CONTROL_EVENT).forEach {
-                            it.send(TorControlEvent(message.response))
-                        }
-                    }
-                    is TorControlTransaction -> {
-                        ActorRegistry.get(ActorRegistry.TOR_CONTROL_TRANSACTION).forEach {
-                            it.send(TorControlTransaction(message.request, message.response))
-                        }
-                    }
-                    else -> {
-
-                    }
-                }
-            }
         }
     }
 }

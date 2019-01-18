@@ -7,7 +7,7 @@ import java.security.SecureRandom
 
 class PasswordDigest(val secret: ByteArray = secret(20), private val specifier: ByteArray = defaultSpecifier()) {
 
-    fun hashedPassword(): Try<String> = Try { "16:" + secretToKey(secret, specifier).flatMap { encodeBytes(it) } }
+    fun hashedPassword(): Try<String> = Try { "16:${secretToKey(secret, specifier).flatMap { encodeBytes(it) }}" }
 
     companion object {
         private fun secretToKey(secret: ByteArray, specifier: ByteArray): Try<ByteArray> {

@@ -10,21 +10,21 @@ sealed class TorControlMessage {
     protected fun noArgs(command: String) = "$command\r\n".toByteArray()
 
     protected fun joinArgs(command: String, keywords: List<String?>): ByteArray =
-            keywords.filter { !it.isNullOrBlank() }.joinToString(
-                    separator = " ",
-                    prefix = "$command ",
-                    postfix = "\r\n"
-            ).toByteArray()
+        keywords.filter { !it.isNullOrBlank() }.joinToString(
+            separator = " ",
+            prefix = "$command ",
+            postfix = "\r\n"
+        ).toByteArray()
 }
 
 class AddOnion(
-        private val keyType: KeyType,
-        private val keyBlob: String,
-        private val ports: List<Port>,
-        private val flags: List<OnionFlag>? = null,
-        private val numStreams: Int? = 0,
-        private val clientName: String? = null,
-        private val clientBlob: String? = null
+    private val keyType: KeyType,
+    private val keyBlob: String,
+    private val ports: List<Port>,
+    private val flags: List<OnionFlag>? = null,
+    private val numStreams: Int? = 0,
+    private val clientName: String? = null,
+    private val clientBlob: String? = null
 ) : TorControlMessage() {
 
     override fun encode(): ByteArray {
@@ -60,8 +60,8 @@ class AddOnion(
 
 class Authenticate(private val value: ByteArray? = null) : TorControlMessage() {
     override fun encode(): ByteArray = if (value == null) noArgs(command) else joinArgs(
-            command,
-            listOf(hex(value))
+        command,
+        listOf(hex(value))
     )
 
     private val command = "AUTHENTICATE"
@@ -83,16 +83,16 @@ class DropGuards : TorControlMessage() {
 }
 
 class ExtendCircuit(
-        private val circuitID: String, private val serverSpec: List<String>? = null,
-        private val purpose: Purpose? = Purpose.general
+    private val circuitID: String, private val serverSpec: List<String>? = null,
+    private val purpose: Purpose? = Purpose.general
 ) : TorControlMessage() {
     override fun encode(): ByteArray =
-            joinArgs(
-                    "EXTENDCIRCUIT", listOf(
-                    circuitID, serverSpec!!.joinToString { "," },
-                    if (purpose != null) "purpose=$purpose" else null
+        joinArgs(
+            "EXTENDCIRCUIT", listOf(
+                circuitID, serverSpec!!.joinToString { "," },
+                if (purpose != null) "purpose=$purpose" else null
             )
-            )
+        )
 
     enum class Purpose {
         general, controller

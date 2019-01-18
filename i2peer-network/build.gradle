@@ -6,4 +6,5 @@ dependencies {
     implementation "net.java.dev.jna:jna:4.5.2"
     compile group: 'org.iq80.leveldb', name: 'leveldb', version:'0.10'
     compile group: 'org.iq80.leveldb', name: 'leveldb-api', version:'0.10'
+
 }

@@ -1,9 +1,8 @@
 package org.i2peer.network
 
 import arrow.core.Try
-import kotlinx.coroutines.experimental.channels.Channel
+import kotlinx.coroutines.channels.Channel
 import okio.ByteString
-import org.i2peer.network.tor.TorConfig
 import org.i2peer.network.tor.TorControlMessage
 import org.slf4j.LoggerFactory
 import java.io.File
@@ -12,7 +11,6 @@ import java.io.InputStream
 
 object Files {
     fun getResourceStream(fileName: String): Try<InputStream> = Try { javaClass.getResourceAsStream("/$fileName") }
-
 
     fun copyResource(resourceName: String, outputFile: File): Try<Long> {
         return getResourceStream(resourceName).fold({ throw IOException("Resource not found: $resourceName") }, {
@@ -34,8 +32,8 @@ enum class OsType {
 }
 
 fun osType(
-        vmName: String = System.getProperty("java.vm.name"),
-        osName: String = System.getProperty("os.name")
+    vmName: String = System.getProperty("java.vm.name"),
+    osName: String = System.getProperty("os.name")
 ): OsType {
     if (vmName.contains("Dalvik")) return OsType.ANDROID
     return when {
@@ -68,44 +66,88 @@ data class TorControlTransaction(val request: TorControlMessage, val response: T
  */
 data class Process(val id: String, val port: String, val path: String)
 
-data class Message(val type: Int, val body: ByteArray)
+/**
+ * Message data class. [type] specifies the type of message, which is arbitrary.
+ */
+data class Message(val type: Int, val body: ByteArray) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as Message
+
+        if (type != other.type) return false
+        if (!body.contentEquals(other.body)) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = type
+        result = 31 * result + body.contentHashCode()
+        return result
+    }
+}
 
 abstract class EventTask {
     abstract var name: String
 }
 
 interface CommunicationTaskMatcher {
+    /**
+     * Returns true if [task] matches rule, otherwise returns false
+     */
     fun match(task: CommunicationTask): Boolean
 }
 
-class DeliveryChannel(val channel: Channel<EventTask>, val matchers: List<CommunicationTaskMatcher>) {
-    fun match(task: CommunicationTask) :Boolean = matchers.all { it.match(task) }
+/**
+ * Matcher that whitelists any [CommunicationTask]
+ */
+class AnyCommunicationTaskMatcher : CommunicationTaskMatcher {
+    override fun match(task: CommunicationTask): Boolean {
+        return true
+    }
 }
 
 /**
- *
+ * A delivery channel that is used to pass messages up the network stack. The [matchers] are used to determine which
+ * [CommunicationTask]s are allowed to continue up the stack.
+ */
+class DeliveryChannel(val channel: Channel<EventTask>, val matchers: List<CommunicationTaskMatcher>) {
+    fun match(task: CommunicationTask): Boolean = matchers.all { it.match(task) }
+}
+
+/**
+ * The ChannelTask ties together a task [name] with a deliveryChannel. For instance, ChannelTask("REGISTER", deliveryChannel)
+ * would create a data class that says the deliveryChannel should be registered.
  */
 data class ChannelTask(override var name: String, val deliveryChannel: DeliveryChannel) : EventTask()
 
 /**
- * Wraps communication so we can define its type
+ * Wraps [communicationsPacket] so we can define its type
  *
  * @property name type of task: SEND or DELIVER
  */
 data class CommunicationTask(override var name: String, val communicationsPacket: CommunicationsPacket) : EventTask()
 
 /**
+ * A packet that contains source and target process info with an embedded [message]. The [sourcePort] is the
+ * onion address of the sender to maintain anonymity.
  *
  * @property sourcePort the onion address of the process that is sending the communicationsPacket
  * @property targetProcess the process to send the communicationsPacket to
  * @property message the message to send
- * @property authInfo authentication info used to decide whether to process this communication
+ * @property authInfo authentication info used to decide whether to process this communication. If no auth info is required use NoAuthInfo instance.
  */
-data class CommunicationsPacket(val sourcePort: String, val targetProcess: Process, val authInfo: AuthInfo, val timestamp: Long, val message: Message)
+data class CommunicationsPacket(
+    val sourcePort: String,
+    val targetProcess: Process,
+    val authInfo: AuthInfo,
+    val timestamp: Long,
+    val message: Message
+)
 
 abstract class AuthInfo(val type: Int)
-
-lateinit var config: TorConfig
 
 fun <T> loggerFor(clazz: Class<T>) = LoggerFactory.getLogger(clazz)
 

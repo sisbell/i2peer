@@ -1,9 +1,12 @@
 package org.i2peer.views
 
+import com.google.common.collect.Lists
 import javafx.scene.control.TextField
-import kotlinx.coroutines.experimental.async
-import kotlinx.coroutines.experimental.channels.actor
-import kotlinx.coroutines.experimental.launch
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.channels.actor
+import kotlinx.coroutines.launch
 import org.i2peer.Styles
 import org.i2peer.auth.NoAuthInfo
 import org.i2peer.network.*
@@ -21,7 +24,11 @@ var proxyField: TextField by singleAssign()
 
 var messageField: TextField by singleAssign()
 
-var thread: Thread by singleAssign()
+lateinit var perfectActor: SendChannel<EventTask>
+
+lateinit var fairLossActor: SendChannel<EventTask>
+
+lateinit var stubbornActor: SendChannel<EventTask>
 
 /**
  * Test App to Verify Connections. Installs Tor, Sets up onion. Sets up port to listen for communicationsPacket
@@ -33,51 +40,19 @@ class MainView : View("Controller") {
         addClass(Styles.welcomeScreen)
         top {
             stackpane {
-                menubar {
-                    menu("File") {
-                        menu("Connect") {
-                            item("A")
-                            item("B")
-                        }
-                        item("Save")
-                        item("Quit")
-                    }
-                    menu("Edit") {
-                        item("Copy")
-                        item("Paste")
-                    }
-                    menu("Bookmark") {
-
-                    }
-                    menu("History") {
-
-                    }
-                    menu("Tools") {
-
-                    }
-                }
                 label(title).addClass(Styles.heading)
             }
         }
-
 
         center {
             vbox {
                 addClass(Styles.content)
                 portField = textfield()// listener to receive messages
-                button("Start Server") {
-                    setOnAction {
-                       launch {
-                            ServerSocket(portField.characters.toString().toInt()).deliverCommunications()
-                        }
-                    }
-                }
-
                 proxyField = textfield()//tor proxy -socks
-                button("Start T") {
+                button("Start Services") {
                     setOnAction {
-                        async {
-                            start()
+                        GlobalScope.async {
+                            start(proxyField.characters.toString().toInt())
                         }
                     }
                 }
@@ -86,27 +61,41 @@ class MainView : View("Controller") {
                 messageField = textfield()
                 button("Send Message") {
                     setOnAction {
-                        async {
+                        GlobalScope.async {
                             println(onionField.characters)
                             val process = Process("myId", onionField.characters.toString(), "i2peer://send_message")
                             val message = Message(4, messageField.characters.toString().toByteArray())
                             val communications = CommunicationsPacket(onionAddress, process, NoAuthInfo(), System.currentTimeMillis(), message)
-                            perfectPointToPoint().sendCommunications(communications)
+                           perfectActor.sendCommunications(communications)
                         }
                     }
                 }
             }
         }
+    }
 
-        ActorRegistry.add(ActorRegistry.TOR_CONTROL_TRANSACTION, actor<Any> {
+    suspend fun start(socksPort: Int) {
+        println("Start")
+        val torConfig = TorConfig(socksPort = socksPort, configDir = File("mydir/" + Math.random()))
+        val networkContext = NetworkContext(torConfig)
+
+        fairLossActor= fairLossPointToPoint(processChannelActor(networkContext), networkContext)
+        stubbornActor = stubbornPointToPoint(fairLossActor,30000, Lists.newArrayList(AnyCommunicationTaskMatcher()))
+        perfectActor = perfectPointToPoint(stubbornActor, Lists.newArrayList(AnyCommunicationTaskMatcher()))
+
+        GlobalScope.async {
+            ServerSocket(portField.characters.toString().toInt()).deliverCommunications(fairLossActor)
+        }
+
+        networkContext.addActorChannel(TOR_CONTROL_TRANSACTION, GlobalScope.actor<Any> {
             for (message in channel) {
                 val m = message as TorControlTransaction
                 if (m.request is AddOnion) {
                     val param = m.response.body as Map<String, String>
                     val serviceId = param.get("ServiceID")
                     onionAddress = serviceId + "onion"
-                //    onionField.text = serviceId + ".onion"
-                    //    TorContext.add(param.get("ServiceID"))
+                    //    onionField.text = serviceId + ".onion"
+                    //    NetworkContext.addActorChannel(param.getActorChannels("ServiceID"))
                     println("SERVICEID:" + param.get("ServiceID"))
                     println("Message:" + m.response.code + ":" + m.response.body)
                 } else {
@@ -115,27 +104,24 @@ class MainView : View("Controller") {
             }
         })
 
+        startTor(torConfig, eventChannel(networkContext))
     }
 
-    suspend fun start() {
-        val torConfig = TorConfig(socksPort = proxyField.characters.toString().toInt(), configDir = File("mydir/" + Math.random()))
-        org.i2peer.network.config = torConfig
-        startTor(torConfig, startActor(torConfig))
-    }
-
-    fun startActor(torConfig: TorConfig) = actor<Any> {
+    fun eventChannel(networkContext: NetworkContext) = GlobalScope.actor<Any> {
         for (message in channel) {
             when (message) {
                 is StartOk -> {
-                    val socket = Socket("127.0.0.1", torConfig.controlPortAuto())
+                    val socket = Socket("127.0.0.1", networkContext.torConfig.controlPortAuto())
                     val source = IO.source(socket.getInputStream())
                     val sink = IO.sink(socket.getOutputStream())
-                    val torchannel = TorControlChannel(source, sink)
+                    val torchannel = TorControlChannel(source, sink, networkContext)
                     torchannel.authenticate()//simple auth
                     torchannel.addOnion(
                             keyType = AddOnion.KeyType.NEW, keyBlob = "ED25519-V3",
+                            flags = listOf(AddOnion.OnionFlag.Detach),
                             ports = listOf(AddOnion.Port(80, "127.0.0.1:" + portField.characters.toString()))
                     )
+                   // torchannel.saveConfiguration(true)
                 }
                 else -> {
                     println(message)
@@ -143,5 +129,4 @@ class MainView : View("Controller") {
             }
         }
     }
-
 }

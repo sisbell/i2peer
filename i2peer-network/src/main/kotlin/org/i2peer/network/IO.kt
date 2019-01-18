@@ -5,25 +5,35 @@ import arrow.core.getOrElse
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.Okio
-import org.i2peer.auth.*
+import org.i2peer.auth.BasicAuthInfo
+import org.i2peer.auth.NoAuthInfo
+import org.i2peer.auth.TokenAuthInfo
+import org.i2peer.auth.UnsupportedAuthInfo
 import org.i2peer.network.tor.TorControlChannel
 import java.io.*
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.*
+import java.util.concurrent.TimeUnit
 
+/**
+ * Wraps [InputStream] and [OutputStream] in an Okio buffer. This provides us with convenient source/sink methods.
+ */
 object IO {
     fun source(input: InputStream): BufferedSource = Okio.buffer(Okio.source(input))
 
     fun sink(output: OutputStream): BufferedSink = Okio.buffer(Okio.sink(output))
 }
 
-fun BufferedSink.writeSignature() : BufferedSink {
-   //TODO: implement signature - use key used with onion v2/v3
-   // this.buffer().readByteArray()
+fun BufferedSink.writeSignature(): BufferedSink {
+    //TODO: implement signature - use key used with onion v2/v3
+    // this.buffer().readByteArray()
     return this
 }
 
+/**
+ * Writes a communications packet to the BufferedSink. This method flushes the sink before returning.
+ */
 fun BufferedSink.writeCommunications(communicationsPacket: CommunicationsPacket): BufferedSink {
     writeUtf(communicationsPacket.sourcePort)
     writeProcess(communicationsPacket.targetProcess)
@@ -35,26 +45,39 @@ fun BufferedSink.writeCommunications(communicationsPacket: CommunicationsPacket)
     return this
 }
 
+/**
+ * Writes a UTF string to the BufferedSink
+ */
 fun BufferedSink.writeUtf(value: String) {
     writeInt(value.length)
     writeUtf8(value)
 }
 
+/**
+ * Writes [process] info to the BufferedSink
+ */
 fun BufferedSink.writeProcess(process: Process) {
     writeUtf(process.id)
     writeUtf(process.port)
     writeUtf(process.path)
 }
 
+/**
+ * Writes a [message] to the BufferedSink
+ */
 fun BufferedSink.writeMessage(message: Message) {
     writeInt(message.type)
     writeLong(message.body.size.toLong())
     write(message.body)
 }
 
+/**
+ * Writes [authInfo] to the BufferedSink. If [authInfo] is an instance of NoAuthInfo, then this method is a no op and
+ * nothing will be written to the sink.
+ */
 fun BufferedSink.writeAuthInfo(authInfo: AuthInfo) {
     writeInt(authInfo.type)
-    when(authInfo) {
+    when (authInfo) {
         is NoAuthInfo -> return
         is BasicAuthInfo -> {
             writeUtf(authInfo.username)
@@ -67,48 +90,79 @@ fun BufferedSink.writeAuthInfo(authInfo: AuthInfo) {
     }
 }
 
-fun Socket.openProcessChannel(socksHostname: String, socksPort: Int, socksConnectTimeout: Int, targetOnionAddress: String): ProcessChannel {
-    connectToSocksPort(socksHostname, socksPort, socksConnectTimeout)
-    val sink = openTorSink(targetOnionAddress)
-    val source = openTorSource()
-    return ProcessChannel(sink = sink, source = source)
+/**
+ * Connects to the socks proxy server and returns a [ProcessChannel] that has a [sink] for writing requests to the
+ * proxy server and a [source] for reading responses from the proxy server. This method handles setting up the initial
+ * handshake for the [sink] and the [source]
+ */
+fun Socket.openProcessChannel(
+    socksHostname: String,
+    socksPort: Int,
+    socksConnectTimeout: Int,
+    targetOnionAddress: String
+): ProcessChannel {
+    connectToPort(socksHostname, socksPort, socksConnectTimeout)
+    val source = IO.source(getInputStream())
+    val sink = IO.sink(getOutputStream())
+    source.timeout().timeout(1000, TimeUnit.MILLISECONDS)
+    sink.timeout().timeout(1000, TimeUnit.MILLISECONDS)
+
+    sink.openSocksSink(targetOnionAddress)
+    source.openSocksSource()
+
+    return ProcessChannel(sink = sink, source = source, isConnected = true)
 }
 
-fun Socket.connectToSocksPort(hostname: String, socksPort: Int, connectTimeout: Int): Socket {
-    println("Connecting..." + hostname + "," + socksPort)
-    connect(InetSocketAddress(hostname, socksPort), connectTimeout)
+/**
+ * Opens a connection to the specfied [hostName] and [port].
+ */
+fun Socket.connectToPort(hostname: String, port: Int, connectTimeout: Int): Socket {
+    println("Connect to port: $hostname $port")
+    connect(InetSocketAddress(hostname, port), connectTimeout)
     return this
 }
 
-fun Socket.openTorSink(port: String): BufferedSink = IO.sink(getOutputStream()).openTorSink(port)
+fun Socket.openSocksSink(port: String): BufferedSink = IO.sink(getOutputStream()).openSocksSink(port)
 
-fun Socket.openTorSource(): BufferedSource = IO.source(getInputStream()).openTorSource()
+fun Socket.openSocksSource(): BufferedSource = IO.source(getInputStream()).openSocksSource()
 
+/**
+ * Reads a [CommunicationsPacket] from the socket.
+ */
 fun Socket.readCommunications(): CommunicationsPacket = IO.source(getInputStream()).readCommunications()
 
-fun BufferedSource.openTorSource(): BufferedSource {
+fun BufferedSource.openSocksSource(): BufferedSource {
+    println("Open socks source")
     val version = readByte()
     val status = readByte()
-    if (status != 90.toByte()) throw IOException("Failed to connect to socks port: code = " + status)
+    if (status != 90.toByte()) throw IOException("Failed to connect to socks port: code = $status, version=$version")
     readShort()
     readInt()
     return this
 }
 
-fun BufferedSink.openTorSink(port: String): BufferedSink {
-    writeByte(0x04)
-    writeByte(0x01)
-    writeShort(80)//port
-    writeInt(0x01)
-    writeByte(0x00)
-    write(port.toByteArray())
-    writeByte(0x00)
+fun BufferedSink.openSocksSink(onionAddress: String): BufferedSink {
+    println("Open socks sink $onionAddress")
+    if (!onionAddress.endsWith(".onion")) {
+        println("Not valid onion address")
+        return this
+    }
+    writeByte(0x04)//socks version
+    writeByte(0x01)//stream connection
+    writeShort(80)//virtual port - configured for hidden service
+    writeInt(0x01)//invalid IP address
+    writeByte(0x00)//user id -terminate
+    write(onionAddress.toByteArray())//host to contact
+    writeByte(0x00)//terminate host address
     flush()
     return this
 }
 
-fun BufferedSource.readAuthInfo() : AuthInfo {
-    when(readInt()) {
+/**
+ * Reads [AuthInfo] from BufferedSource
+ */
+fun BufferedSource.readAuthInfo(): AuthInfo {
+    when (readInt()) {
         0 -> return NoAuthInfo()
         1 -> return BasicAuthInfo(readUtf(), readUtf())
         2 -> return TokenAuthInfo(readUtf(), readUtf())
@@ -118,8 +172,13 @@ fun BufferedSource.readAuthInfo() : AuthInfo {
 
 fun BufferedSource.readProcess(): Process = Process(readUtf(), readUtf(), readUtf())
 
-fun BufferedSource.readCommunications(): CommunicationsPacket = CommunicationsPacket(readUtf(), readProcess(),
-        readAuthInfo(), readLong(), readMessage())//TODO: read and verify signature
+/**
+ * Reads [CommunicationsPacket] from buffered source
+ */
+fun BufferedSource.readCommunications(): CommunicationsPacket = CommunicationsPacket(
+    readUtf(), readProcess(),
+    readAuthInfo(), readLong(), readMessage()
+)//TODO: read and verify signature
 
 fun BufferedSource.readMessage(): Message = Message(readInt(), readByteArray(readLong()))
 

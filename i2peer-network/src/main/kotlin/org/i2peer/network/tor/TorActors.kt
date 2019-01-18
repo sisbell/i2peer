@@ -1,14 +1,15 @@
 package org.i2peer.network.tor
 
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.ObsoleteCoroutinesApi
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.channels.actor
+import kotlinx.coroutines.runBlocking
+import org.i2peer.network.createDir
+import org.i2peer.network.setPermsRwx
 import org.i2peer.network.tor.Installer.copyFiles
 import org.i2peer.network.tor.Installer.unzipArchive
 import org.i2peer.network.tor.TorConfig.Companion.writeConfig
-import kotlinx.coroutines.experimental.CommonPool
-import kotlinx.coroutines.experimental.async
-import kotlinx.coroutines.experimental.channels.SendChannel
-import kotlinx.coroutines.experimental.channels.actor
-import org.i2peer.network.createDir
-import org.i2peer.network.setPermsRwx
 import java.io.ByteArrayOutputStream
 import java.lang.System.currentTimeMillis
 import java.util.concurrent.TimeUnit
@@ -20,10 +21,12 @@ data class StartProcessMessage(val message: String)
 data class StartOk(val message: String, val torProcess: Process)
 data class Bootstrap(val percentage: Double)
 
+@ObsoleteCoroutinesApi
 suspend fun startTor(torConfig: TorConfig, event: SendChannel<Any>) =
-        torConfigWriter().send(TorStartData(torConfig, event))
+    torConfigWriter().send(TorStartData(torConfig, event))
 
-fun torConfigWriter() = actor<TorStartData>(CommonPool) {
+@ObsoleteCoroutinesApi
+fun torConfigWriter() = GlobalScope.actor<TorStartData> {
     val data = channel.receive()
     data.event.send(EventMessage("TorConfigWriter"))
 
@@ -40,17 +43,18 @@ fun torConfigWriter() = actor<TorStartData>(CommonPool) {
     channel.cancel()
 }
 
-fun torInstallNeededChecker() = actor<TorStartData>(CommonPool) {
+@ObsoleteCoroutinesApi
+fun torInstallNeededChecker() = GlobalScope.actor<TorStartData> {
     val data = channel.receive()
     data.event.send(EventMessage("ToInstallCheck"))
 
     val config = data.torConfig
     if (doResourceFilesExist(
-                    geoIpFile = config.geoIpFile,
-                    geoIpv6File = config.geoIpv6File,
-                    torrcFile = config.torrcFile
-            )
-            && config.torExecutableFile.exists()
+            geoIpFile = config.geoIpFile,
+            geoIpv6File = config.geoIpv6File,
+            torrcFile = config.torrcFile
+        )
+        && config.torExecutableFile.exists()
     ) {
         torStarter().send(data)
     } else {
@@ -60,40 +64,43 @@ fun torInstallNeededChecker() = actor<TorStartData>(CommonPool) {
     channel.cancel()
 }
 
-fun torProgramUnarchiver() = actor<TorStartData>(CommonPool) {
+@ObsoleteCoroutinesApi
+fun torProgramUnarchiver() = GlobalScope.actor<TorStartData> {
     val data = channel.receive()
     data.event.send(EventMessage("TorUnarchiver"))
 
     val config = data.torConfig
     unzipArchive(config.torExecutableFile).fold(
-            { data.event.send(EventError("Failed to unzip tor archive", it)) },
-            {
-                config.torExecutableFile.setPermsRwx()
-                        .fold({ data.event.send(EventError("Failed to set permissions on tor", it)) },
-                                { torConfigFilesCopier().send(data) })
-            })
+        { data.event.send(EventError("Failed to unzip tor archive", it)) },
+        {
+            config.torExecutableFile.setPermsRwx()
+                .fold({ data.event.send(EventError("Failed to set permissions on tor", it)) },
+                    { torConfigFilesCopier().send(data) })
+        })
     channel.cancel()
 }
 
-fun torConfigFilesCopier() = actor<TorStartData>(CommonPool) {
+@ObsoleteCoroutinesApi
+fun torConfigFilesCopier() = GlobalScope.actor<TorStartData> {
     val data = channel.receive()
     data.event.send(EventMessage("Copier"))
 
     val config = data.torConfig
     copyFiles(geoIpFile = config.geoIpFile, geoIpv6File = config.geoIpv6File)
-            .fold({ data.event.send(EventError("Failed to copy resource files", it)) },
-                    { torStarter().send(data) })
+        .fold({ data.event.send(EventError("Failed to copy resource files", it)) },
+            { torStarter().send(data) })
     channel.cancel()
 }
 
-fun torStarter() = actor<TorStartData>(CommonPool) {
+@ObsoleteCoroutinesApi
+fun torStarter() = GlobalScope.actor<TorStartData> {
     val data = channel.receive()
     data.event.send(EventMessage("Starter: " + data.torConfig.torrcFile.absolutePath))
 
     val config = data.torConfig
     val processBuilder = ProcessBuilder(runTorArgs(config.torExecutableFile, config.torrcFile))
     val environment = processBuilder.environment()
-    environment.put("LD_LIBRARY_PATH", config.libraryPath.absolutePath);
+    environment.put("LD_LIBRARY_PATH", config.libraryPath.absolutePath)
 
     val process = processBuilder.start()
     process.waitFor(5000, TimeUnit.MILLISECONDS)
@@ -111,39 +118,35 @@ fun torStarter() = actor<TorStartData>(CommonPool) {
     //}
 
     val time = currentTimeMillis()
+
     process.inputStream.bufferedReader().lines().forEach {
+        /*
         if (time + 30000 < currentTimeMillis()) {
-            async {
-                data.event.send(EventError("Tor targetProcess to too long to start"))
-                process.destroy()
-            }
-            return@forEach
+            data.event.offer(EventError("Tor targetProcess taking too long to start"))
+            process.destroy()
         }
+*/
         when {
             it.contains("Bootstrapped ") -> {
-                async {
-                    val result = boostrapRegex.find(it)
-                    val progress = result!!.groups[1]!!.value.toDouble()
-                    if (progress == 100.toDouble())
+                val result = boostrapRegex.find(it)
+                val progress = result!!.groups[1]!!.value.toDouble()
+                runBlocking {
+                    if (progress == 100.toDouble()) {
+                        println("Start OK")
                         data.event.send(StartOk("OK", process))
-                    else
+                    } else
                         data.event.send(Bootstrap(progress))
-
                 }
+
                 return@forEach
             }
             it.contains("[err]") -> {
-                async {
-                    data.event.send(EventError("Tor targetProcess failed to start: $it"))
-                    process.destroy()
-                }
-                return@forEach
+                data.event.offer(EventError("Tor targetProcess failed to start: $it"))
+                process.destroy()
             }
+        }
 
-        }
         System.out.println(it)
-        async {
-            data.event.send(StartProcessMessage(it))
-        }
+        data.event.offer(StartProcessMessage(it))
     }
 }

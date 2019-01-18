@@ -1,28 +1,35 @@
 package org.i2peer.network.links
 
-import kotlinx.coroutines.experimental.async
-import kotlinx.coroutines.experimental.channels.SendChannel
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.SendChannel
 import org.i2peer.network.CommunicationTask
 import org.i2peer.network.EventTask
 import java.util.concurrent.CopyOnWriteArraySet
-import kotlin.concurrent.*
+import kotlin.concurrent.fixedRateTimer
 
 /**
  * This link sends all previously sent messages periodically.
  */
-class StubbornPointToPoint(private val fairLossLink: SendChannel<EventTask>) : Link() {
+class StubbornPointToPoint(private val fairLossLink: SendChannel<EventTask>, pollPeriod: Long) : Link() {
 
     private val sentCommunications: CopyOnWriteArraySet<CommunicationTask> = CopyOnWriteArraySet()
 
-    val fixedRateTimer = fixedRateTimer(name = "timeout",
-            initialDelay = 100, period = 30000) {
-        async {
+    /**
+     * Periodically send previously cached messaged
+     */
+    val fixedRateTimer = fixedRateTimer(
+        name = "timeout",
+        initialDelay = 100, period = pollPeriod
+    ) {
+        GlobalScope.async {
             timeout()
         }
     }
 
     /**
-     * Sends all the previously sent sentCommunications to lower layer
+     * On timeout, sends all the previously sent communications to a [FairLossPointToPoint] link. It doesn't care
+     * if the endpoint ultimately receives the message, it will just keep sending it.
      */
     private suspend fun timeout() {
         val sentCommunication = sentCommunications.iterator()
@@ -30,13 +37,15 @@ class StubbornPointToPoint(private val fairLossLink: SendChannel<EventTask>) : L
     }
 
     override suspend fun deliver(communicationTask: CommunicationTask) {
+        println("SP2P. Deliver: " + deliveryChannels.size)
         val deliveryChannel = deliveryChannels.filter { it.match(communicationTask) }.iterator()
         while (deliveryChannel.hasNext()) deliveryChannel.next().channel.send(communicationTask)
-
     }
 
+    /**
+     * Sends the [CommunicationTask] to a [FairLossPointToPoint] link and caches the messages.
+     */
     override suspend fun send(communicationTask: CommunicationTask) {
-        println("Send stubborn link")
         fairLossLink.send(communicationTask)
         sentCommunications.add(communicationTask)
     }
