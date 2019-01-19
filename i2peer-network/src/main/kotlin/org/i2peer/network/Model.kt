@@ -6,14 +6,13 @@ import okio.ByteString
 import org.i2peer.network.tor.TorControlMessage
 import org.slf4j.LoggerFactory
 import java.io.File
-import java.io.IOException
 import java.io.InputStream
 
 object Files {
     fun getResourceStream(fileName: String): Try<InputStream> = Try { javaClass.getResourceAsStream("/$fileName") }
 
     fun copyResource(resourceName: String, outputFile: File): Try<Long> {
-        return getResourceStream(resourceName).fold({ throw IOException("Resource not found: $resourceName") }, {
+        return getResourceStream(resourceName).fold({ throw Exception("Resource not found: $resourceName") }, {
             it.copyToFile(outputFile)
         })
     }
@@ -98,6 +97,13 @@ interface CommunicationTaskMatcher {
      * Returns true if [task] matches rule, otherwise returns false
      */
     fun match(task: CommunicationTask): Boolean
+}
+
+interface CommunicationPacketMatcher {
+    /**
+     * Returns true if [communicationsPacket] matches rule, otherwise returns false
+     */
+    fun match(communicationsPacket: CommunicationsPacket) : Boolean
 }
 
 /**

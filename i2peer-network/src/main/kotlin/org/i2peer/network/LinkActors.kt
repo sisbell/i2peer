@@ -128,6 +128,17 @@ fun perfectPointToPoint(
     channel.routeEventsToLink(PerfectPointToPoint(fromActor))
 }
 
+/**
+ * Interface between network stack and the application
+ */
+@ObsoleteCoroutinesApi
+fun applicationLink(
+    fromChannel: SendChannel<EventTask>) = GlobalScope.actor<EventTask> {
+    val fromActor =
+        channel.deliverEventsFrom(fromChannel, Lists.newArrayList(AnyCommunicationTaskMatcher()))
+    channel.routeEventsToLink(ApplicationLayer(fromActor))
+}
+
 @ObsoleteCoroutinesApi
 fun ping(
     fromChannel: SendChannel<EventTask>, matchers: List<CommunicationTaskMatcher> = Lists.newArrayList()
