@@ -8,10 +8,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.actor
 import okio.Buffer
-import org.i2peer.network.links.FairLossPointToPoint
-import org.i2peer.network.links.Link
-import org.i2peer.network.links.PerfectPointToPoint
-import org.i2peer.network.links.StubbornPointToPoint
+import org.i2peer.network.links.*
 import java.net.Socket
 
 const val SEND = "Send"
@@ -129,6 +126,15 @@ fun perfectPointToPoint(
     val fromActor =
         channel.deliverEventsFrom(fromChannel, matchers)
     channel.routeEventsToLink(PerfectPointToPoint(fromActor))
+}
+
+@ObsoleteCoroutinesApi
+fun ping(
+    fromChannel: SendChannel<EventTask>, matchers: List<CommunicationTaskMatcher> = Lists.newArrayList()
+) = GlobalScope.actor<EventTask> {
+    val fromActor =
+        channel.deliverEventsFrom(fromChannel, matchers)
+    channel.routeEventsToLink(Ping(fromActor))
 }
 
 /**

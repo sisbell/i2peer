@@ -9,7 +9,7 @@ import java.util.concurrent.CopyOnWriteArraySet
  * This link guarantees a message is delivered once. This class instance keeps a record of all delivered messages and if
  * it has delivered a message previously, it will not redeliver it.
  */
-class PerfectPointToPoint(private val stubbornLink: SendChannel<EventTask>) : Link() {
+class PerfectPointToPoint(private val lowerLayer: SendChannel<EventTask>) : Link() {
 
     private val delivered: CopyOnWriteArraySet<CommunicationTask> = CopyOnWriteArraySet()
 
@@ -31,7 +31,7 @@ class PerfectPointToPoint(private val stubbornLink: SendChannel<EventTask>) : Li
      */
     override suspend fun send(communicationTask: CommunicationTask) {
         println("Send PerfectLink: ${communicationTask.communicationsPacket.message}")
-        stubbornLink.send(communicationTask)
+        lowerLayer.send(communicationTask)
     }
 
 }

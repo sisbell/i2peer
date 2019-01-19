@@ -190,6 +190,6 @@ class LinkActorsTest {
     private fun createTestCommunicationsPacket(): CommunicationsPacket {
         val targetProcess = Process("myId", "ikvh2uz76knum6dw", "path")
         val message = Message(3, "Hello Onion".toByteArray())
-        return CommunicationsPacket("8080", targetProcess, NoAuthInfo(), 1000, message)
+        return CommunicationsPacket("ABC", "123", "8080", targetProcess, NoAuthInfo(), 1000, message)
     }
 }

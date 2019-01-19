@@ -35,6 +35,8 @@ fun BufferedSink.writeSignature(): BufferedSink {
  * Writes a communications packet to the BufferedSink. This method flushes the sink before returning.
  */
 fun BufferedSink.writeCommunications(communicationsPacket: CommunicationsPacket): BufferedSink {
+    writeUtf(communicationsPacket.sourcePacketId)
+    writeUtf(communicationsPacket.responsePacketId)
     writeUtf(communicationsPacket.sourcePort)
     writeProcess(communicationsPacket.targetProcess)
     writeAuthInfo(communicationsPacket.authInfo)
@@ -176,6 +178,7 @@ fun BufferedSource.readProcess(): Process = Process(readUtf(), readUtf(), readUt
  * Reads [CommunicationsPacket] from buffered source
  */
 fun BufferedSource.readCommunications(): CommunicationsPacket = CommunicationsPacket(
+    readUtf(), readUtf(),
     readUtf(), readProcess(),
     readAuthInfo(), readLong(), readMessage()
 )//TODO: read and verify signature

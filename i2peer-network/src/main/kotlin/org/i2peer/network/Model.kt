@@ -140,6 +140,8 @@ data class CommunicationTask(override var name: String, val communicationsPacket
  * @property authInfo authentication info used to decide whether to process this communication. If no auth info is required use NoAuthInfo instance.
  */
 data class CommunicationsPacket(
+    val sourcePacketId: String = CodeGenerator.generateCode(),
+    val responsePacketId: String,
     val sourcePort: String,
     val targetProcess: Process,
     val authInfo: AuthInfo,

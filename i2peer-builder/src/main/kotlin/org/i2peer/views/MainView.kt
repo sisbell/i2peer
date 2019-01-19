@@ -6,7 +6,6 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.actor
-import kotlinx.coroutines.launch
 import org.i2peer.Styles
 import org.i2peer.auth.NoAuthInfo
 import org.i2peer.network.*
@@ -29,6 +28,8 @@ lateinit var perfectActor: SendChannel<EventTask>
 lateinit var fairLossActor: SendChannel<EventTask>
 
 lateinit var stubbornActor: SendChannel<EventTask>
+
+lateinit var pingActor: SendChannel<EventTask>
 
 /**
  * Test App to Verify Connections. Installs Tor, Sets up onion. Sets up port to listen for communicationsPacket
@@ -65,8 +66,35 @@ class MainView : View("Controller") {
                             println(onionField.characters)
                             val process = Process("myId", onionField.characters.toString(), "i2peer://send_message")
                             val message = Message(4, messageField.characters.toString().toByteArray())
-                            val communications = CommunicationsPacket(onionAddress, process, NoAuthInfo(), System.currentTimeMillis(), message)
-                           perfectActor.sendCommunications(communications)
+                            val communications = CommunicationsPacket(
+                                CodeGenerator.generateCode(),
+                                "",
+                                onionAddress,
+                                process,
+                                NoAuthInfo(),
+                                System.currentTimeMillis(),
+                                message
+                            )
+                            perfectActor.sendCommunications(communications)
+                        }
+                    }
+                }
+
+                button("Ping") {
+                    setOnAction {
+                        GlobalScope.async {
+                            val process = Process("myId", onionField.characters.toString(), "i2peer://ping")
+                            val message = Message(303, "Ping".toByteArray())
+                            val communications = CommunicationsPacket(
+                                CodeGenerator.generateCode(),
+                                "",
+                                onionAddress,
+                                process,
+                                NoAuthInfo(),
+                                System.currentTimeMillis(),
+                                message
+                            )
+                            pingActor.sendCommunications(communications)
                         }
                     }
                 }
@@ -74,14 +102,16 @@ class MainView : View("Controller") {
         }
     }
 
+
     suspend fun start(socksPort: Int) {
         println("Start")
         val torConfig = TorConfig(socksPort = socksPort, configDir = File("mydir/" + Math.random()))
         val networkContext = NetworkContext(torConfig)
 
-        fairLossActor= fairLossPointToPoint(processChannelActor(networkContext), networkContext)
-        stubbornActor = stubbornPointToPoint(fairLossActor,30000, Lists.newArrayList(AnyCommunicationTaskMatcher()))
+        fairLossActor = fairLossPointToPoint(processChannelActor(networkContext), networkContext)
+        stubbornActor = stubbornPointToPoint(fairLossActor, 30000, Lists.newArrayList(AnyCommunicationTaskMatcher()))
         perfectActor = perfectPointToPoint(stubbornActor, Lists.newArrayList(AnyCommunicationTaskMatcher()))
+        pingActor = ping(perfectActor, Lists.newArrayList(AnyCommunicationTaskMatcher()))
 
         GlobalScope.async {
             ServerSocket(portField.characters.toString().toInt()).deliverCommunications(fairLossActor)
@@ -93,7 +123,7 @@ class MainView : View("Controller") {
                 if (m.request is AddOnion) {
                     val param = m.response.body as Map<String, String>
                     val serviceId = param.get("ServiceID")
-                    onionAddress = serviceId + "onion"
+                    onionAddress = serviceId + ".onion"
                     //    onionField.text = serviceId + ".onion"
                     //    NetworkContext.addActorChannel(param.getActorChannels("ServiceID"))
                     println("SERVICEID:" + param.get("ServiceID"))
@@ -117,11 +147,11 @@ class MainView : View("Controller") {
                     val torchannel = TorControlChannel(source, sink, networkContext)
                     torchannel.authenticate()//simple auth
                     torchannel.addOnion(
-                            keyType = AddOnion.KeyType.NEW, keyBlob = "ED25519-V3",
-                            flags = listOf(AddOnion.OnionFlag.Detach),
-                            ports = listOf(AddOnion.Port(80, "127.0.0.1:" + portField.characters.toString()))
+                        keyType = AddOnion.KeyType.NEW, keyBlob = "ED25519-V3",
+                        flags = listOf(AddOnion.OnionFlag.Detach),
+                        ports = listOf(AddOnion.Port(80, "127.0.0.1:" + portField.characters.toString()))
                     )
-                   // torchannel.saveConfiguration(true)
+                    // torchannel.saveConfiguration(true)
                 }
                 else -> {
                     println(message)

@@ -11,7 +11,7 @@ import kotlin.concurrent.fixedRateTimer
 /**
  * This link sends all previously sent messages periodically.
  */
-class StubbornPointToPoint(private val fairLossLink: SendChannel<EventTask>, pollPeriod: Long) : Link() {
+class StubbornPointToPoint(private val lowerLayer: SendChannel<EventTask>, pollPeriod: Long) : Link() {
 
     private val sentCommunications: CopyOnWriteArraySet<CommunicationTask> = CopyOnWriteArraySet()
 
@@ -33,7 +33,7 @@ class StubbornPointToPoint(private val fairLossLink: SendChannel<EventTask>, pol
      */
     private suspend fun timeout() {
         val sentCommunication = sentCommunications.iterator()
-        while (sentCommunication.hasNext()) fairLossLink.send(sentCommunication.next())
+        while (sentCommunication.hasNext()) lowerLayer.send(sentCommunication.next())
     }
 
     override suspend fun deliver(communicationTask: CommunicationTask) {
@@ -46,7 +46,7 @@ class StubbornPointToPoint(private val fairLossLink: SendChannel<EventTask>, pol
      * Sends the [CommunicationTask] to a [FairLossPointToPoint] link and caches the messages.
      */
     override suspend fun send(communicationTask: CommunicationTask) {
-        fairLossLink.send(communicationTask)
+        lowerLayer.send(communicationTask)
         sentCommunications.add(communicationTask)
     }
 }

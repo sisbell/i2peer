@@ -12,7 +12,8 @@ class ProcessChannelTest {
     suspend fun send() {
         val targetProcess = Process("myId", "ikvh2uz76knum6dw", "path")
         val message = Message(3, "Hello Onion".toByteArray())
-        val communicationsPacket = CommunicationsPacket("8080", targetProcess, NoAuthInfo(), 1000, message)
+        val communicationsPacket =
+            CommunicationsPacket("ABC", "123", "8080", targetProcess, NoAuthInfo(), 1000, message)
 
         val boas = ByteArrayOutputStream()
         val sink = IO.sink(boas)
